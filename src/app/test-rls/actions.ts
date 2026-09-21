@@ -740,3 +740,1011 @@ export async function createTestReceipt() {
 
   revalidatePath("/test-rls");
 }
+// ============================================================
+// TESTER LA CRÉATION ATOMIQUE D'UN BAIL EN CHEVAUCHEMENT
+// ============================================================
+
+export async function testAtomicLeaseOverlap() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id, role")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+  if (membershipError || !membership) {
+    console.error(
+      "Impossible de récupérer l'organisation :",
+      membershipError
+    );
+    return;
+  }
+
+  const organizationId = membership.organization_id;
+
+  const { data: property, error: propertyError } =
+    await supabase
+      .from("properties")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("name", "Résidence Alteract Test")
+      .maybeSingle();
+
+  if (propertyError || !property) {
+    console.error(
+      "Bien test introuvable.",
+      propertyError
+    );
+    return;
+  }
+
+  const { data: unit, error: unitError } =
+    await supabase
+      .from("units")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", property.id)
+      .eq("name", "Appartement A01")
+      .maybeSingle();
+
+  if (unitError || !unit) {
+    console.error(
+      "Unité test introuvable.",
+      unitError
+    );
+    return;
+  }
+
+  const { data: tenant, error: tenantError } =
+    await supabase
+      .from("tenants")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("email", "marie.kone.test@example.com")
+      .maybeSingle();
+
+  if (tenantError || !tenant) {
+    console.error(
+      "Locataire test introuvable.",
+      tenantError
+    );
+    return;
+  }
+
+  const { data: lease, error: leaseError } =
+    await supabase.rpc(
+      "create_active_lease_with_schedules",
+      {
+        target_organization_id: organizationId,
+        target_unit_id: unit.id,
+        target_tenant_id: tenant.id,
+        target_start_date: "2027-01-01",
+        target_end_date: "2027-12-31",
+        target_monthly_rent: 250000,
+        target_currency: "XOF",
+        target_security_deposit: 0,
+        target_payment_due_day: 5,
+        target_notes:
+          "TEST ATOMIC OVERLAP SHOULD FAIL",
+      }
+    );
+
+  if (leaseError) {
+    console.log(
+      "TEST RÉUSSI : le bail en chevauchement a été refusé.",
+      leaseError
+    );
+    return;
+  }
+
+  console.error(
+    "TEST ÉCHOUÉ : un bail en chevauchement a été créé.",
+    lease
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER LA CRÉATION ATOMIQUE D'UN BAIL VALIDE
+// ============================================================
+
+export async function testAtomicLeaseValid() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id, role")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+  if (membershipError || !membership) {
+    console.error(
+      "Impossible de récupérer l'organisation :",
+      membershipError
+    );
+    return;
+  }
+
+  const organizationId = membership.organization_id;
+
+  const { data: property, error: propertyError } =
+    await supabase
+      .from("properties")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("name", "Résidence Alteract Test")
+      .maybeSingle();
+
+  if (propertyError || !property) {
+    console.error(
+      "Bien test introuvable.",
+      propertyError
+    );
+    return;
+  }
+
+  const { data: unit, error: unitError } =
+    await supabase
+      .from("units")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", property.id)
+      .eq("name", "Appartement A01")
+      .maybeSingle();
+
+  if (unitError || !unit) {
+    console.error(
+      "Unité test introuvable.",
+      unitError
+    );
+    return;
+  }
+
+  const { data: tenant, error: tenantError } =
+    await supabase
+      .from("tenants")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("email", "marie.kone.test@example.com")
+      .maybeSingle();
+
+  if (tenantError || !tenant) {
+    console.error(
+      "Locataire test introuvable.",
+      tenantError
+    );
+    return;
+  }
+
+  const { data: existingLease, error: existingLeaseError } =
+    await supabase
+      .from("leases")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("unit_id", unit.id)
+      .eq("start_date", "2027-10-01")
+      .eq("end_date", "2028-09-30")
+      .maybeSingle();
+
+  if (existingLeaseError) {
+    console.error(
+      "Erreur pendant la recherche du bail atomique valide :",
+      existingLeaseError
+    );
+    return;
+  }
+
+  if (existingLease) {
+    console.log(
+      "Le bail atomique valide de test existe déjà :",
+      existingLease.id
+    );
+    return;
+  }
+
+  const { data: lease, error: leaseError } =
+    await supabase.rpc(
+      "create_active_lease_with_schedules",
+      {
+        target_organization_id: organizationId,
+        target_unit_id: unit.id,
+        target_tenant_id: tenant.id,
+        target_start_date: "2027-10-01",
+        target_end_date: "2028-09-30",
+        target_monthly_rent: 250000,
+        target_currency: "XOF",
+        target_security_deposit: 0,
+        target_payment_due_day: 5,
+        target_notes:
+          "TEST ATOMIC VALID ALTERACT",
+      }
+    );
+
+  if (leaseError) {
+    console.error(
+      "TEST ÉCHOUÉ : la création atomique valide a été refusée.",
+      leaseError
+    );
+    return;
+  }
+
+  console.log(
+    "TEST RÉUSSI : bail et échéancier créés atomiquement.",
+    lease
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER LA RÉSILIATION ANTICIPÉE D'UN BAIL
+// ============================================================
+
+export async function testTerminateLeaseEarly() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: lease, error: leaseError } = await supabase
+    .from("leases")
+    .select("id, status, start_date, end_date, effective_end_date, notes")
+    .eq("id", "c9b8ba99-29d4-4280-9122-9a3e84903c23")
+    .maybeSingle();
+
+  if (leaseError || !lease) {
+    console.error(
+      "Bail temporaire de résiliation introuvable.",
+      leaseError
+    );
+    return;
+  }
+
+  if (lease.status !== "ACTIVE") {
+    console.error(
+      "Le bail temporaire doit être ACTIVE avant le test.",
+      lease
+    );
+    return;
+  }
+
+  const { data: terminatedLease, error: terminationError } =
+    await supabase.rpc(
+      "terminate_lease_early",
+      {
+        target_lease_id: lease.id,
+        target_effective_end_date: "2032-04-15",
+      }
+    );
+
+  if (terminationError) {
+    console.error(
+      "TEST ÉCHOUÉ : la résiliation anticipée a été refusée.",
+      terminationError
+    );
+    return;
+  }
+
+  console.log(
+    "TEST RÉUSSI : le bail a été résilié au 15/04/2032.",
+    terminatedLease
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER LA QUITTANCE SUR UNE ÉCHÉANCE NON SOLDÉE
+// ============================================================
+
+export async function testQuittanceUnpaidSchedule() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: quittance, error: quittanceError } =
+    await supabase.rpc(
+      "create_quittance_for_schedule",
+      {
+        target_schedule_id:
+          "1a0b135d-4856-43cc-91e6-0d30ecd4c107",
+      }
+    );
+
+  if (quittanceError) {
+    if (
+      quittanceError.message?.includes(
+        "quittance interdite : échéance non soldée"
+      )
+    ) {
+      console.log(
+        "TEST RÉUSSI : la quittance a été refusée car l'échéance n'est pas soldée.",
+        quittanceError
+      );
+      return;
+    }
+
+    console.error(
+      "TEST ÉCHOUÉ : une erreur inattendue est survenue.",
+      quittanceError
+    );
+    return;
+  }
+
+  console.error(
+    "TEST ÉCHOUÉ : une quittance a été créée alors que l'échéance n'est pas soldée.",
+    quittance
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// CRÉER LA QUITTANCE SUR UNE ÉCHÉANCE SOLDÉE
+// ============================================================
+
+export async function createPaidScheduleQuittance() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: quittance, error: quittanceError } =
+    await supabase.rpc(
+      "create_quittance_for_schedule",
+      {
+        target_schedule_id:
+          "1a0b135d-4856-43cc-91e6-0d30ecd4c107",
+      }
+    );
+
+  if (quittanceError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de créer la quittance sur l'échéance soldée.",
+      quittanceError
+    );
+    return;
+  }
+
+  console.log(
+    "TEST RÉUSSI : quittance créée sur l'échéance soldée.",
+    quittance
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER LA CRÉATION D'UN REMBOURSEMENT VIA LE RPC MÉTIER
+// ============================================================
+
+export async function testCreatePaymentRefundRpc() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: payment, error: paymentError } =
+    await supabase
+      .from("payments")
+      .select("id, amount, currency, status, reference")
+      .eq("reference", "ALTERACT-TEST-PAYMENT-BALANCE-001")
+      .maybeSingle();
+
+  if (paymentError || !payment) {
+    console.error(
+      "TEST ÉCHOUÉ : paiement de solde introuvable.",
+      paymentError
+    );
+    return;
+  }
+
+  if (payment.status !== "COMPLETED") {
+    console.error(
+      "TEST ÉCHOUÉ : le paiement doit être COMPLETED avant le remboursement.",
+      payment
+    );
+    return;
+  }
+
+  const testReference =
+    "ALTERACT-TEST-REFUND-RPC-001";
+
+  const { data: existingRefund, error: existingRefundError } =
+    await supabase
+      .from("payment_refunds")
+      .select("id, amount, reference")
+      .eq("payment_id", payment.id)
+      .eq("reference", testReference)
+      .maybeSingle();
+
+  if (existingRefundError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de vérifier le remboursement de test.",
+      existingRefundError
+    );
+    return;
+  }
+
+  if (existingRefund) {
+    console.log(
+      "TEST DÉJÀ EFFECTUÉ : le remboursement RPC existe déjà.",
+      existingRefund
+    );
+    return;
+  }
+
+  const { data: refund, error: refundError } =
+    await supabase.rpc(
+      "create_payment_refund",
+      {
+        target_payment_id: payment.id,
+        target_amount: 1000,
+        target_refund_date: "2026-10-13",
+        target_reason:
+          "Test du remboursement contrôlé via RPC Alteract.",
+        target_reference: testReference,
+      }
+    );
+
+  if (refundError) {
+    console.error(
+      "TEST ÉCHOUÉ : le remboursement via RPC a été refusé.",
+      refundError
+    );
+    return;
+  }
+
+  console.log(
+    "TEST RÉUSSI : remboursement de 1 000 XOF créé via le RPC métier.",
+    refund
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER QUE L'INSERT DIRECT D'UN REMBOURSEMENT EST BLOQUÉ PAR RLS
+// ============================================================
+
+export async function testDirectRefundInsertBlocked() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: payment, error: paymentError } =
+    await supabase
+      .from("payments")
+      .select(
+        "id, organization_id, amount, currency, status, reference"
+      )
+      .eq(
+        "reference",
+        "ALTERACT-TEST-PAYMENT-BALANCE-001"
+      )
+      .maybeSingle();
+
+  if (paymentError || !payment) {
+    console.error(
+      "TEST ÉCHOUÉ : paiement de solde introuvable.",
+      paymentError
+    );
+    return;
+  }
+
+  const testReference =
+    "ALTERACT-TEST-DIRECT-REFUND-BLOCKED-001";
+
+  const { data: existingRefund, error: existingRefundError } =
+    await supabase
+      .from("payment_refunds")
+      .select("id, reference")
+      .eq("reference", testReference)
+      .maybeSingle();
+
+  if (existingRefundError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de vérifier l'existence du remboursement de test.",
+      existingRefundError
+    );
+    return;
+  }
+
+  if (existingRefund) {
+    console.error(
+      "TEST À NETTOYER : un remboursement de test existe déjà.",
+      existingRefund
+    );
+    return;
+  }
+
+  const { data: insertedRefund, error: insertError } =
+    await supabase
+      .from("payment_refunds")
+      .insert({
+        organization_id: payment.organization_id,
+        payment_id: payment.id,
+        amount: 1000,
+        currency: payment.currency,
+        refund_date: "2026-10-14",
+        reason:
+          "Test : cet INSERT direct doit être bloqué par le RLS.",
+        reference: testReference,
+      })
+      .select()
+      .maybeSingle();
+
+  if (insertError) {
+    console.log(
+      "TEST RÉUSSI : l'INSERT direct de remboursement a été bloqué par le RLS.",
+      insertError
+    );
+    return;
+  }
+
+  console.error(
+    "TEST ÉCHOUÉ : l'INSERT direct a été autorisé alors qu'il devrait être bloqué.",
+    insertedRefund
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER LA CRÉATION D'UN PAIEMENT VIA LE RPC MÉTIER
+// ============================================================
+
+export async function testCreatePaymentRpc() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+  if (membershipError || !membership) {
+    console.error(
+      "TEST ÉCHOUÉ : organisation active introuvable.",
+      membershipError
+    );
+    return;
+  }
+
+  const { data: lease, error: leaseError } =
+    await supabase
+      .from("leases")
+      .select("id")
+      .eq("organization_id", membership.organization_id)
+      .eq("start_date", "2026-10-01")
+      .eq("end_date", "2027-09-30")
+      .maybeSingle();
+
+  if (leaseError || !lease) {
+    console.error(
+      "TEST ÉCHOUÉ : bail principal introuvable.",
+      leaseError
+    );
+    return;
+  }
+
+  const { data: schedule, error: scheduleError } =
+    await supabase
+      .from("rent_schedules")
+      .select("id, status, amount_due, currency")
+      .eq("organization_id", membership.organization_id)
+      .eq("lease_id", lease.id)
+      .eq("period_start", "2026-11-01")
+      .maybeSingle();
+
+  if (scheduleError || !schedule) {
+    console.error(
+      "TEST ÉCHOUÉ : échéance de novembre 2026 introuvable.",
+      scheduleError
+    );
+    return;
+  }
+
+  if (schedule.status === "CANCELLED") {
+    console.error(
+      "TEST ÉCHOUÉ : l'échéance de novembre est annulée.",
+      schedule
+    );
+    return;
+  }
+
+  const testReference = "ALTERACT-TEST-PAYMENT-RPC-001";
+
+  const { data: existingPayment, error: existingPaymentError } =
+    await supabase
+      .from("payments")
+      .select("id, amount, status, reference")
+      .eq("organization_id", membership.organization_id)
+      .eq("reference", testReference)
+      .maybeSingle();
+
+  if (existingPaymentError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de vérifier le paiement RPC de test.",
+      existingPaymentError
+    );
+    return;
+  }
+
+  if (existingPayment) {
+    console.log(
+      "TEST DÉJÀ EFFECTUÉ : le paiement RPC existe déjà.",
+      existingPayment
+    );
+    return;
+  }
+
+  const { data: payment, error: paymentError } =
+    await supabase.rpc(
+      "create_payment",
+      {
+        target_rent_schedule_id: schedule.id,
+        target_amount: 1000,
+        target_payment_date: "2026-11-02",
+        target_payment_method: "BANK_TRANSFER",
+        target_status: "PENDING",
+        target_reference: testReference,
+        target_notes:
+          "Paiement temporaire PENDING créé pour tester le RPC métier Alteract.",
+      }
+    );
+
+  if (paymentError) {
+    console.error(
+      "TEST ÉCHOUÉ : la création du paiement via RPC a été refusée.",
+      paymentError
+    );
+    return;
+  }
+
+  console.log(
+    "TEST RÉUSSI : paiement PENDING de 1 000 XOF créé via le RPC métier.",
+    payment
+  );
+
+  revalidatePath("/test-rls");
+}
+
+
+
+// ============================================================
+// TESTER QUE L'INSERT DIRECT D'UN PAIEMENT EST BLOQUÉ PAR RLS
+// ============================================================
+
+export async function testDirectPaymentInsertBlocked() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+  if (membershipError || !membership) {
+    console.error(
+      "TEST ÉCHOUÉ : organisation active introuvable.",
+      membershipError
+    );
+    return;
+  }
+
+  const { data: lease, error: leaseError } =
+    await supabase
+      .from("leases")
+      .select("id")
+      .eq("organization_id", membership.organization_id)
+      .eq("start_date", "2026-10-01")
+      .eq("end_date", "2027-09-30")
+      .maybeSingle();
+
+  if (leaseError || !lease) {
+    console.error(
+      "TEST ÉCHOUÉ : bail principal introuvable.",
+      leaseError
+    );
+    return;
+  }
+
+  const { data: schedule, error: scheduleError } =
+    await supabase
+      .from("rent_schedules")
+      .select("id, organization_id, currency, status")
+      .eq("organization_id", membership.organization_id)
+      .eq("lease_id", lease.id)
+      .eq("period_start", "2026-12-01")
+      .maybeSingle();
+
+  if (scheduleError || !schedule) {
+    console.error(
+      "TEST ÉCHOUÉ : échéance de décembre 2026 introuvable.",
+      scheduleError
+    );
+    return;
+  }
+
+  if (schedule.status === "CANCELLED") {
+    console.error(
+      "TEST ÉCHOUÉ : l'échéance de décembre est annulée.",
+      schedule
+    );
+    return;
+  }
+
+  const testReference =
+    "ALTERACT-TEST-DIRECT-PAYMENT-BLOCKED-001";
+
+  const { data: existingPayment, error: existingPaymentError } =
+    await supabase
+      .from("payments")
+      .select("id, reference")
+      .eq("organization_id", membership.organization_id)
+      .eq("reference", testReference)
+      .maybeSingle();
+
+  if (existingPaymentError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de vérifier le paiement de test.",
+      existingPaymentError
+    );
+    return;
+  }
+
+  if (existingPayment) {
+    console.error(
+      "TEST À NETTOYER : un paiement de test existe déjà.",
+      existingPayment
+    );
+    return;
+  }
+
+  const { data: insertedPayment, error: insertError } =
+    await supabase
+      .from("payments")
+      .insert({
+        organization_id: schedule.organization_id,
+        rent_schedule_id: schedule.id,
+        amount: 1000,
+        currency: schedule.currency,
+        payment_date: "2026-12-02",
+        payment_method: "BANK_TRANSFER",
+        status: "PENDING",
+        reference: testReference,
+        notes:
+          "Test : cet INSERT direct doit être bloqué par le RLS.",
+      })
+      .select()
+      .maybeSingle();
+
+  if (insertError) {
+    console.log(
+      "TEST RÉUSSI : l'INSERT direct de paiement a été bloqué par le RLS.",
+      insertError
+    );
+    return;
+  }
+
+  console.error(
+    "TEST ÉCHOUÉ : l'INSERT direct de paiement a été autorisé alors qu'il devrait être bloqué.",
+    insertedPayment
+  );
+
+  revalidatePath("/test-rls");
+}
+
+// ============================================================
+// TESTER QUE L'INSERT DIRECT D'UN BAIL EST BLOQUÉ PAR RLS
+// ============================================================
+
+export async function testDirectLeaseInsertBlocked() {
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
+
+  if (claimsError || !claimsData?.claims) {
+    console.error("Utilisateur non authentifié.");
+    return;
+  }
+
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+  if (membershipError || !membership) {
+    console.error(
+      "TEST ÉCHOUÉ : organisation active introuvable.",
+      membershipError
+    );
+    return;
+  }
+
+  const organizationId = membership.organization_id;
+
+  const { data: property, error: propertyError } =
+    await supabase
+      .from("properties")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("name", "Résidence Alteract Test")
+      .maybeSingle();
+
+  if (propertyError || !property) {
+    console.error(
+      "TEST ÉCHOUÉ : bien test introuvable.",
+      propertyError
+    );
+    return;
+  }
+
+  const { data: unit, error: unitError } =
+    await supabase
+      .from("units")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", property.id)
+      .eq("name", "Appartement A01")
+      .maybeSingle();
+
+  if (unitError || !unit) {
+    console.error(
+      "TEST ÉCHOUÉ : unité test introuvable.",
+      unitError
+    );
+    return;
+  }
+
+  const { data: tenant, error: tenantError } =
+    await supabase
+      .from("tenants")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("email", "marie.kone.test@example.com")
+      .maybeSingle();
+
+  if (tenantError || !tenant) {
+    console.error(
+      "TEST ÉCHOUÉ : locataire test introuvable.",
+      tenantError
+    );
+    return;
+  }
+
+  const testNote = "ALTERACT-TEST-DIRECT-LEASE-BLOCKED-001";
+
+  const { data: existingLease, error: existingLeaseError } =
+    await supabase
+      .from("leases")
+      .select("id, notes")
+      .eq("organization_id", organizationId)
+      .eq("notes", testNote)
+      .maybeSingle();
+
+  if (existingLeaseError) {
+    console.error(
+      "TEST ÉCHOUÉ : impossible de vérifier le bail direct de test.",
+      existingLeaseError
+    );
+    return;
+  }
+
+  if (existingLease) {
+    console.error(
+      "TEST À NETTOYER : un bail direct de test existe déjà.",
+      existingLease
+    );
+    return;
+  }
+
+  const { data: insertedLease, error: insertError } =
+    await supabase
+      .from("leases")
+      .insert({
+        organization_id: organizationId,
+        unit_id: unit.id,
+        tenant_id: tenant.id,
+        status: "ACTIVE",
+        start_date: "2028-10-01",
+        end_date: "2029-09-30",
+        monthly_rent: 250000,
+        currency: "XOF",
+        security_deposit: 0,
+        payment_due_day: 5,
+        notes: testNote,
+      })
+      .select()
+      .maybeSingle();
+
+  if (insertError) {
+    console.log(
+      "TEST RÉUSSI : l'INSERT direct de bail a été bloqué par le RLS.",
+      insertError
+    );
+    return;
+  }
+
+  console.error(
+    "TEST ÉCHOUÉ : l'INSERT direct de bail a été autorisé alors qu'il devrait être bloqué.",
+    insertedLease
+  );
+
+  revalidatePath("/test-rls");
+}
+
