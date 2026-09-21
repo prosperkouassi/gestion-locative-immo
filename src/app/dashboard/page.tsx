@@ -1,43 +1,18 @@
 import {
-  BarChart3,
   Bell,
   Building2,
   CalendarDays,
   ChevronDown,
-  CircleDollarSign,
-  CircleUserRound,
   CreditCard,
-  FileText,
-  Home,
-  LayoutDashboard,
   MessageSquareText,
   MoreHorizontal,
-  ReceiptText,
   Search,
-  Settings,
   TrendingUp,
   UserRound,
-  Users,
-  WalletCards,
-  Wrench,
 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
-
-const navItems = [
-  { label: "Tableau de bord", icon: LayoutDashboard, active: true },
-  { label: "Propriétaires", icon: CircleUserRound },
-  { label: "Biens", icon: Building2 },
-  { label: "Unités", icon: Home },
-  { label: "Locataires", icon: Users },
-  { label: "Baux", icon: FileText },
-  { label: "Échéances", icon: CalendarDays },
-  { label: "Paiements", icon: CreditCard },
-  { label: "Dépenses", icon: WalletCards },
-  { label: "Maintenance", icon: Wrench },
-  { label: "Documents", icon: ReceiptText },
-  { label: "Rapports", icon: BarChart3 },
-];
+import AppSidebar from "@/components/AppSidebar";
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -175,71 +150,6 @@ function StatusBadge({
     >
       {label}
     </span>
-  );
-}
-
-function Sidebar() {
-  return (
-    <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col bg-[#151515] px-3 py-4 text-white lg:flex">
-      <div className="flex h-12 items-center gap-3 px-2">
-        <div className="grid h-9 w-9 grid-cols-2 gap-1 rounded-xl border border-red-400/40 bg-[#232323] p-2 shadow-inner">
-          <span className="rounded-sm bg-red-400" />
-          <span className="rounded-sm bg-red-400" />
-          <span className="rounded-sm bg-red-400" />
-          <span className="rounded-sm bg-red-400" />
-        </div>
-        <div>
-          <p className="text-[17px] font-extrabold tracking-tight">Alteract</p>
-          <p className="text-[14px] text-white/45">Gestion locative</p>
-        </div>
-      </div>
-
-      <nav className="mt-6 space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <button
-              key={item.label}
-              type="button"
-              className={[
-                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium transition",
-                item.active
-                  ? "bg-gradient-to-r from-red-500 to-[#ff675b] text-white shadow-[0_10px_24px_rgba(239,68,68,0.22)]"
-                  : "text-white/75 hover:bg-white/5 hover:text-white",
-              ].join(" ")}
-            >
-              <Icon className="h-[17px] w-[17px]" />
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="mt-auto">
-        <button
-          type="button"
-          className="mb-3 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium text-white/75 transition hover:bg-white/5 hover:text-white"
-        >
-          <Settings className="h-[17px] w-[17px]" />
-          Paramètres
-        </button>
-
-        <div className="rounded-2xl border border-white/5 bg-white/[0.06] p-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
-              <CircleDollarSign className="h-5 w-5 text-red-400" />
-            </div>
-            <div>
-              <p className="text-base font-semibold">Vue d’ensemble</p>
-              <p className="mt-1 text-[14px] leading-4 text-white/50">
-                Gérez efficacement votre parc immobilier.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </aside>
   );
 }
 
@@ -833,7 +743,7 @@ export default async function DashboardPage() {
   return (
     <div className="h-screen overflow-hidden bg-white">
       <div className="flex h-screen w-full overflow-hidden bg-white">
-        <Sidebar />
+        <AppSidebar />
 
         <main className="h-screen min-w-0 flex-1 overflow-y-auto bg-white">
           <header className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 md:flex-row md:items-center md:justify-between lg:px-7">
