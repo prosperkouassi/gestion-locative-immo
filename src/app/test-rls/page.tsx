@@ -1,299 +1,185 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 import {
-  createTestOwner,
-  createTestProperty,
-  createTestUnit,
-  createTestTenant,
-  createTestLease,
-  createTestRentSchedule,
-  createTestPayment,
-  createTestReceipt,
   testAtomicLeaseOverlap,
-  testAtomicLeaseValid,
-  testTerminateLeaseEarly,
-  testQuittanceUnpaidSchedule,
-  createPaidScheduleQuittance,
-  testCreatePaymentRefundRpc,
   testDirectRefundInsertBlocked,
-  testCreatePaymentRpc,
   testDirectPaymentInsertBlocked,
   testDirectLeaseInsertBlocked,
 } from "./actions";
 
-function ResultBlock({
-  title,
-  data,
-}: {
-  title: string;
-  data: unknown;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 text-lg font-semibold text-slate-900">
-        {title}
-      </h2>
+type CountCardProps = {
+  label: string;
+  value: number | null;
+};
 
-      <pre className="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100">
-        {JSON.stringify(data, null, 2)}
-      </pre>
-    </section>
+function CountCard({ label, value }: CountCardProps) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold text-slate-900">
+        {value ?? 0}
+      </p>
+    </div>
   );
 }
 
 export default async function TestRlsPage() {
   const supabase = await createClient();
 
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("*");
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
 
-  const { data: memberships } = await supabase
-    .from("organization_members")
-    .select("*");
+  if (claimsError || !claimsData?.claims) {
+    redirect("/login");
+  }
 
-  const { data: organizations } = await supabase
-    .from("organizations")
-    .select("*");
+  const { data: membership, error: membershipError } =
+    await supabase
+      .from("organization_members")
+      .select("organization_id, role, is_active")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
 
-  const { data: owners } = await supabase
-    .from("owners")
-    .select("*");
+  if (
+    membershipError ||
+    !membership ||
+    !["ADMIN_AGENCY", "MANAGER"].includes(membership.role)
+  ) {
+    redirect("/dashboard");
+  }
 
-  const { data: properties } = await supabase
-    .from("properties")
-    .select("*");
-
-  const { data: units } = await supabase
-    .from("units")
-    .select("*");
-
-  const { data: tenants } = await supabase
-    .from("tenants")
-    .select("*");
-
-  const { data: leases } = await supabase
-    .from("leases")
-    .select("*");
-
-  const { data: rentSchedules } = await supabase
-    .from("rent_schedules")
-    .select("*")
-    .order("due_date", { ascending: true });
-
-  const { data: payments } = await supabase
-    .from("payments")
-    .select("*")
-    .order("payment_date", { ascending: true });
-
-  const { data: paymentRefunds } = await supabase
-    .from("payment_refunds")
-    .select("*")
-    .order("refund_date", { ascending: true });
-
-  const { data: receipts } = await supabase
-    .from("receipts")
-    .select("*")
-    .order("issued_at", { ascending: true });
-
-  const { data: quittances } = await supabase
-    .from("rent_quittances")
-    .select("*")
-    .order("issued_at", { ascending: true });
+  const [
+    ownersResult,
+    propertiesResult,
+    unitsResult,
+    tenantsResult,
+    leasesResult,
+    schedulesResult,
+    paymentsResult,
+    refundsResult,
+    receiptsResult,
+    quittancesResult,
+  ] = await Promise.all([
+    supabase
+      .from("owners")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("properties")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("units")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("tenants")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("leases")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("rent_schedules")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("payments")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("payment_refunds")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("receipts")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("rent_quittances")
+      .select("id", { count: "exact", head: true }),
+  ]);
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">
-            Test RLS Alteract
+          <p className="text-sm font-semibold uppercase tracking-wide text-red-500">
+            Développement uniquement
+          </p>
+
+          <h1 className="mt-2 text-3xl font-bold text-slate-900">
+            Contrôles de sécurité Alteract
           </h1>
 
-          <p className="mt-2 text-slate-600">
-            Page temporaire de validation des accès et des relations
-            multi-tenant.
+          <p className="mt-3 max-w-3xl text-slate-600">
+            Cette page temporaire conserve uniquement des tests négatifs
+            utiles pour vérifier que les écritures directes sensibles restent
+            bloquées et que les protections métier principales sont actives.
           </p>
+
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Accès réservé aux rôles ADMIN_AGENCY et MANAGER. Cette page devra
+            être supprimée avant la mise en production.
+          </div>
         </div>
 
-        <div className="mb-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <form action={createTestOwner}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-red-500 px-5 py-4 font-semibold text-white transition hover:bg-red-600"
-            >
-              1. Créer le propriétaire test
-            </button>
-          </form>
+        <section className="mb-10">
+          <h2 className="mb-4 text-xl font-semibold text-slate-900">
+            Tests de sécurité conservés
+          </h2>
 
-          <form action={createTestProperty}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-slate-800 px-5 py-4 font-semibold text-white transition hover:bg-slate-900"
-            >
-              2. Créer le bien test
-            </button>
-          </form>
+          <div className="grid gap-4 md:grid-cols-2">
+            <form action={testAtomicLeaseOverlap}>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-rose-700 px-5 py-4 font-semibold text-white transition hover:bg-rose-800"
+              >
+                1. Vérifier le blocage des baux en chevauchement
+              </button>
+            </form>
 
-          <form action={createTestUnit}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-green-600 px-5 py-4 font-semibold text-white transition hover:bg-green-700"
-            >
-              3. Créer l&apos;unité test
-            </button>
-          </form>
+            <form action={testDirectRefundInsertBlocked}>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-slate-800 px-5 py-4 font-semibold text-white transition hover:bg-slate-900"
+              >
+                2. Vérifier l&apos;INSERT direct de remboursement
+              </button>
+            </form>
 
-          <form action={createTestTenant}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-blue-600 px-5 py-4 font-semibold text-white transition hover:bg-blue-700"
-            >
-              4. Créer le locataire test
-            </button>
-          </form>
+            <form action={testDirectPaymentInsertBlocked}>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-red-700 px-5 py-4 font-semibold text-white transition hover:bg-red-800"
+              >
+                3. Vérifier l&apos;INSERT direct de paiement
+              </button>
+            </form>
 
-          <form action={createTestLease}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-violet-600 px-5 py-4 font-semibold text-white transition hover:bg-violet-700"
-            >
-              5. Créer le bail test
-            </button>
-          </form>
+            <form action={testDirectLeaseInsertBlocked}>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-orange-700 px-5 py-4 font-semibold text-white transition hover:bg-orange-800"
+              >
+                4. Vérifier l&apos;INSERT direct de bail
+              </button>
+            </form>
+          </div>
+        </section>
 
-          <form action={createTestRentSchedule}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-amber-500 px-5 py-4 font-semibold text-white transition hover:bg-amber-600"
-            >
-              6. Créer l&apos;échéance test
-            </button>
-          </form>
+        <section>
+          <h2 className="mb-4 text-xl font-semibold text-slate-900">
+            Données visibles via le RLS
+          </h2>
 
-          <form action={createTestPayment}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-emerald-600 px-5 py-4 font-semibold text-white transition hover:bg-emerald-700"
-            >
-              7. Créer le paiement partiel
-            </button>
-          </form>
-
-          <form action={createTestReceipt}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-indigo-600 px-5 py-4 font-semibold text-white transition hover:bg-indigo-700"
-            >
-              8. Créer le reçu test
-            </button>
-          </form>
-
-          <form action={testAtomicLeaseOverlap}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-rose-700 px-5 py-4 font-semibold text-white transition hover:bg-rose-800"
-            >
-              9. Tester le bail atomique en chevauchement
-            </button>
-          </form>
-
-          <form action={testAtomicLeaseValid}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-cyan-700 px-5 py-4 font-semibold text-white transition hover:bg-cyan-800"
-            >
-              10. Tester la création atomique valide
-            </button>
-          </form>
-
-          <form action={testTerminateLeaseEarly}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-orange-700 px-5 py-4 font-semibold text-white transition hover:bg-orange-800"
-            >
-              11. Tester la résiliation anticipée
-            </button>
-          </form>
-
-          <form action={testQuittanceUnpaidSchedule}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-fuchsia-700 px-5 py-4 font-semibold text-white transition hover:bg-fuchsia-800"
-            >
-              12. Tester la quittance non soldée
-            </button>
-          </form>
-
-          <form action={createPaidScheduleQuittance}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-teal-700 px-5 py-4 font-semibold text-white transition hover:bg-teal-800"
-            >
-              13. Créer la quittance sur échéance soldée
-            </button>
-          </form>
-
-          <form action={testCreatePaymentRefundRpc}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-purple-700 px-5 py-4 font-semibold text-white transition hover:bg-purple-800"
-            >
-              14. Tester le remboursement via RPC
-            </button>
-          </form>
-
-          <form action={testDirectRefundInsertBlocked}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-slate-700 px-5 py-4 font-semibold text-white transition hover:bg-slate-800"
-            >
-              15. Tester l&apos;INSERT direct de remboursement
-            </button>
-          </form>
-
-          <form action={testCreatePaymentRpc}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-blue-700 px-5 py-4 font-semibold text-white transition hover:bg-blue-800"
-            >
-              16. Tester la création de paiement via RPC
-            </button>
-          </form>
-
-          <form action={testDirectPaymentInsertBlocked}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-red-700 px-5 py-4 font-semibold text-white transition hover:bg-red-800"
-            >
-              17. Tester l&apos;INSERT direct de paiement
-            </button>
-          </form>
-
-          <form action={testDirectLeaseInsertBlocked}>
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-rose-800 px-5 py-4 font-semibold text-white transition hover:bg-rose-900"
-            >
-              18. Tester l&apos;INSERT direct de bail
-            </button>
-          </form>
-        </div>
-
-        <div className="grid gap-6">
-          <ResultBlock title="Profiles" data={profiles} />
-          <ResultBlock title="Organization Members" data={memberships} />
-          <ResultBlock title="Organizations" data={organizations} />
-          <ResultBlock title="Owners" data={owners} />
-          <ResultBlock title="Properties" data={properties} />
-          <ResultBlock title="Units" data={units} />
-          <ResultBlock title="Tenants" data={tenants} />
-          <ResultBlock title="Leases" data={leases} />
-          <ResultBlock title="Rent Schedules" data={rentSchedules} />
-          <ResultBlock title="Payments" data={payments} />
-          <ResultBlock title="Payment Refunds" data={paymentRefunds} />
-          <ResultBlock title="Receipts" data={receipts} />
-          <ResultBlock title="Rent Quittances" data={quittances} />
-        </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <CountCard label="Propriétaires" value={ownersResult.count} />
+            <CountCard label="Biens" value={propertiesResult.count} />
+            <CountCard label="Unités" value={unitsResult.count} />
+            <CountCard label="Locataires" value={tenantsResult.count} />
+            <CountCard label="Baux" value={leasesResult.count} />
+            <CountCard label="Échéances" value={schedulesResult.count} />
+            <CountCard label="Paiements" value={paymentsResult.count} />
+            <CountCard label="Remboursements" value={refundsResult.count} />
+            <CountCard label="Reçus" value={receiptsResult.count} />
+            <CountCard label="Quittances" value={quittancesResult.count} />
+          </div>
+        </section>
       </div>
     </main>
   );
