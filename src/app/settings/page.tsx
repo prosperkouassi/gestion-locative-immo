@@ -5,7 +5,11 @@ import {
   CreditCard,
   KeyRound,
   LockKeyhole,
+  Mail,
+  MapPin,
+  Phone,
   ReceiptText,
+  Save,
   Search,
   Settings2,
   ShieldCheck,
@@ -16,6 +20,8 @@ import {
 
 import AppSidebar from "@/components/AppSidebar";
 import { createClient } from "@/lib/supabase/server";
+
+import { updateOrganizationAction } from "./actions";
 
 function formatRole(role: string | null | undefined) {
   switch (role) {
@@ -32,7 +38,9 @@ function formatRole(role: string | null | undefined) {
   }
 }
 
-function formatOrganizationStatus(status: string | null | undefined) {
+function formatOrganizationStatus(
+  status: string | null | undefined
+) {
   switch (status) {
     case "ACTIVE":
       return {
@@ -81,7 +89,9 @@ export default async function SettingsPage() {
   const { data: organization } = membership?.organization_id
     ? await supabase
         .from("organizations")
-        .select("id, name, slug, status, created_at")
+        .select(
+          "id, name, slug, email, phone, address, city, country, status, created_at, updated_at"
+        )
         .eq("id", membership.organization_id)
         .maybeSingle()
     : { data: null };
@@ -90,10 +100,14 @@ export default async function SettingsPage() {
     organization?.status
   );
 
-  const agencyName = organization?.name ?? "Agence non renseignée";
+  const agencyName =
+    organization?.name ?? "Agence non renseignée";
   const agencySlug = organization?.slug ?? "—";
   const userEmail = user?.email ?? "Email non renseigné";
   const currentRole = formatRole(membership?.role);
+
+  const canEditOrganization =
+    membership?.role === "ADMIN_AGENCY";
 
   return (
     <div className="h-screen overflow-hidden bg-[#F8FAFC]">
@@ -138,8 +152,9 @@ export default async function SettingsPage() {
                 </h2>
 
                 <p className="mt-1 text-[13px] text-slate-500">
-                  Gérez progressivement les informations de l’agence,
-                  les accès, les documents et les règles de gestion.
+                  Gérez progressivement les informations de
+                  l’agence, les accès, les documents et les règles
+                  de gestion.
                 </p>
               </div>
 
@@ -209,7 +224,7 @@ export default async function SettingsPage() {
               </div>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
+            <section className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
               <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 px-5 py-5">
                   <div className="flex items-center gap-3">
@@ -223,54 +238,142 @@ export default async function SettingsPage() {
                       </h3>
 
                       <p className="mt-1 text-[12px] text-slate-500">
-                        Identité principale de votre organisation.
+                        Coordonnées utilisées pour votre
+                        organisation et vos futurs documents.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-4 p-5">
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <p className="text-[12px] font-semibold text-slate-500">
-                      Nom de l’agence
-                    </p>
-                    <p className="text-[13px] font-bold text-slate-900">
-                      {agencyName}
-                    </p>
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <p className="text-[12px] font-semibold text-slate-500">
-                      Identifiant
-                    </p>
-                    <p className="text-[13px] font-medium text-slate-700">
-                      {agencySlug}
-                    </p>
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <p className="text-[12px] font-semibold text-slate-500">
-                      Statut
-                    </p>
-                    <div>
-                      <span
-                        className={[
-                          "inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-semibold ring-1 ring-inset",
-                          organizationStatus.className,
-                        ].join(" ")}
-                      >
-                        {organizationStatus.label}
+                <form
+                  action={updateOrganizationAction}
+                  className="space-y-5 p-5"
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-1.5 md:col-span-2">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Nom de l’agence *
                       </span>
-                    </div>
+                      <input
+                        name="name"
+                        type="text"
+                        required
+                        maxLength={120}
+                        defaultValue={organization?.name ?? ""}
+                        disabled={!canEditOrganization}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-900 outline-none transition focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600">
+                        <Mail className="h-3.5 w-3.5" />
+                        Email
+                      </span>
+                      <input
+                        name="email"
+                        type="email"
+                        maxLength={160}
+                        defaultValue={organization?.email ?? ""}
+                        disabled={!canEditOrganization}
+                        placeholder="contact@agence.com"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600">
+                        <Phone className="h-3.5 w-3.5" />
+                        Téléphone
+                      </span>
+                      <input
+                        name="phone"
+                        type="tel"
+                        maxLength={40}
+                        defaultValue={organization?.phone ?? ""}
+                        disabled={!canEditOrganization}
+                        placeholder="+225 00 00 00 00 00"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5 md:col-span-2">
+                      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600">
+                        <MapPin className="h-3.5 w-3.5" />
+                        Adresse
+                      </span>
+                      <input
+                        name="address"
+                        type="text"
+                        maxLength={240}
+                        defaultValue={organization?.address ?? ""}
+                        disabled={!canEditOrganization}
+                        placeholder="Adresse de l’agence"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Ville
+                      </span>
+                      <input
+                        name="city"
+                        type="text"
+                        maxLength={120}
+                        defaultValue={organization?.city ?? ""}
+                        disabled={!canEditOrganization}
+                        placeholder="Ville"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Pays
+                      </span>
+                      <input
+                        name="country"
+                        type="text"
+                        maxLength={120}
+                        defaultValue={organization?.country ?? ""}
+                        disabled={!canEditOrganization}
+                        placeholder="Pays"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    </label>
                   </div>
 
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[12px] text-slate-500">
-                      L’édition des informations de l’agence sera activée
-                      dans une prochaine étape avec contrôle serveur.
-                    </p>
+                  <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[12px] font-semibold text-slate-600">
+                        Identifiant : {agencySlug}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Le slug et le statut ne sont pas
+                        modifiables depuis ce formulaire.
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!canEditOrganization}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 text-[13px] font-bold text-white shadow-sm transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Save className="h-4 w-4" />
+                      Enregistrer
+                    </button>
                   </div>
-                </div>
+
+                  {!canEditOrganization ? (
+                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                      <p className="text-[12px] font-medium text-amber-700">
+                        Seul un administrateur d’agence peut
+                        modifier ces informations.
+                      </p>
+                    </div>
+                  ) : null}
+                </form>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -293,38 +396,40 @@ export default async function SettingsPage() {
                 </div>
 
                 <div className="space-y-4 p-5">
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                  <div>
                     <p className="text-[12px] font-semibold text-slate-500">
                       Utilisateur
                     </p>
-                    <p className="truncate text-[13px] font-bold text-slate-900">
+                    <p className="mt-1 truncate text-[13px] font-bold text-slate-900">
                       {userEmail}
                     </p>
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                  <div>
                     <p className="text-[12px] font-semibold text-slate-500">
                       Rôle
                     </p>
-                    <p className="text-[13px] font-bold text-slate-900">
+                    <p className="mt-1 text-[13px] font-bold text-slate-900">
                       {currentRole}
                     </p>
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                  <div>
                     <p className="text-[12px] font-semibold text-slate-500">
                       Accès
                     </p>
-                    <span className="w-fit rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-100">
-                      {membership?.is_active ? "Actif" : "Non actif"}
+                    <span className="mt-2 inline-flex rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                      {membership?.is_active
+                        ? "Actif"
+                        : "Non actif"}
                     </span>
                   </div>
 
                   <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[12px] text-slate-500">
-                      La gestion des invitations et des autres utilisateurs
-                      sera ajoutée côté serveur afin de respecter les règles
-                      de sécurité Alteract.
+                    <p className="text-[12px] leading-5 text-slate-500">
+                      La gestion des invitations et des autres
+                      utilisateurs sera ajoutée dans la prochaine
+                      étape.
                     </p>
                   </div>
                 </div>
@@ -354,8 +459,8 @@ export default async function SettingsPage() {
                         Préférences générales
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Devise, formats, comportements et préférences
-                        générales de l’agence.
+                        Devise, formats, comportements et
+                        préférences générales de l’agence.
                       </p>
                     </div>
                   </div>
@@ -372,8 +477,8 @@ export default async function SettingsPage() {
                         Numérotation des documents
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Préfixes et règles des reçus, quittances et futurs
-                        documents.
+                        Préfixes et règles des reçus, quittances
+                        et futurs documents.
                       </p>
                     </div>
                   </div>
@@ -390,8 +495,8 @@ export default async function SettingsPage() {
                         Loyers et paiements
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Jours d’échéance, méthodes de paiement et règles
-                        financières de l’agence.
+                        Jours d’échéance, méthodes de paiement et
+                        règles financières de l’agence.
                       </p>
                     </div>
                   </div>
@@ -408,7 +513,8 @@ export default async function SettingsPage() {
                         Sécurité
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Sessions, permissions, contrôle des accès et audit.
+                        Sessions, permissions, contrôle des accès
+                        et audit.
                       </p>
                     </div>
                   </div>
@@ -425,8 +531,8 @@ export default async function SettingsPage() {
                         Accès et invitations
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Invitations d’utilisateurs et affectation des rôles
-                        organisationnels.
+                        Invitations d’utilisateurs et affectation
+                        des rôles organisationnels.
                       </p>
                     </div>
                   </div>
@@ -443,8 +549,9 @@ export default async function SettingsPage() {
                         Contrôles sensibles
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Actions administratives protégées et opérations
-                        nécessitant une autorisation renforcée.
+                        Actions administratives protégées et
+                        opérations nécessitant une autorisation
+                        renforcée.
                       </p>
                     </div>
                   </div>
@@ -458,15 +565,14 @@ export default async function SettingsPage() {
 
                 <div>
                   <h3 className="text-[14px] font-bold text-slate-900">
-                    Paramètres V1
+                    Paramètres V2
                   </h3>
 
                   <p className="mt-1 text-[12px] leading-5 text-slate-600">
-                    Cette première version est volontairement en lecture
-                    seule. Les modifications sensibles seront branchées
-                    progressivement via des actions serveur sécurisées,
-                    plutôt que par des écritures directes depuis le
-                    navigateur.
+                    Les informations principales de l’agence sont
+                    maintenant modifiables par l’administrateur.
+                    Les rôles, invitations et autres paramètres
+                    seront activés progressivement.
                   </p>
                 </div>
               </div>
