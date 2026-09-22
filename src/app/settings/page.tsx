@@ -14,6 +14,7 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  UserPlus,
   UserRound,
   Users,
 } from "lucide-react";
@@ -69,6 +70,38 @@ function formatOrganizationStatus(
   }
 }
 
+function roleBadgeClass(role: string | null | undefined) {
+  switch (role) {
+    case "ADMIN_AGENCY":
+      return "bg-red-50 text-red-700 ring-red-100";
+    case "MANAGER":
+      return "bg-blue-50 text-blue-700 ring-blue-100";
+    case "OWNER":
+      return "bg-violet-50 text-violet-700 ring-violet-100";
+    case "TENANT":
+      return "bg-amber-50 text-amber-700 ring-amber-100";
+    default:
+      return "bg-slate-100 text-slate-600 ring-slate-200";
+  }
+}
+
+type MemberRow = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+};
+
 export default async function SettingsPage() {
   const supabase = await createClient();
 
@@ -96,6 +129,58 @@ export default async function SettingsPage() {
         .maybeSingle()
     : { data: null };
 
+  let members: MemberRow[] = [];
+  let profilesById = new Map<string, ProfileRow>();
+
+  if (
+    membership?.organization_id &&
+    membership.role === "ADMIN_AGENCY"
+  ) {
+    const { data: memberRows } = await supabase
+      .from("organization_members")
+      .select(
+        "id, organization_id, user_id, role, is_active, created_at"
+      )
+      .eq("organization_id", membership.organization_id)
+      .order("created_at", { ascending: true });
+
+    members = (memberRows ?? []) as MemberRow[];
+
+    const memberUserIds = members.map(
+      (member) => member.user_id
+    );
+
+    if (memberUserIds.length > 0) {
+      const { data: profileRows } = await supabase
+        .from("profiles")
+        .select(
+          "id, first_name, last_name, phone, avatar_url"
+        )
+        .in("id", memberUserIds);
+
+      profilesById = new Map(
+        ((profileRows ?? []) as ProfileRow[]).map(
+          (profile) => [profile.id, profile]
+        )
+      );
+    }
+  } else if (user) {
+    const { data: ownProfile } = await supabase
+      .from("profiles")
+      .select(
+        "id, first_name, last_name, phone, avatar_url"
+      )
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (ownProfile) {
+      profilesById.set(
+        ownProfile.id,
+        ownProfile as ProfileRow
+      );
+    }
+  }
+
   const organizationStatus = formatOrganizationStatus(
     organization?.status
   );
@@ -108,6 +193,28 @@ export default async function SettingsPage() {
 
   const canEditOrganization =
     membership?.role === "ADMIN_AGENCY";
+
+  const visibleMembers =
+    canEditOrganization
+      ? members
+      : user && membership
+        ? [
+            {
+              id: user.id,
+              organization_id: membership.organization_id,
+              user_id: user.id,
+              role: membership.role,
+              is_active: membership.is_active,
+              created_at: null,
+            },
+          ]
+        : [];
+
+  const activeMembersCount = visibleMembers.filter(
+    (member) => member.is_active
+  ).length;
+
+  const memberCount = visibleMembers.length;
 
   return (
     <div className="h-screen overflow-hidden bg-[#F8FAFC]">
@@ -212,13 +319,18 @@ export default async function SettingsPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <p className="text-[13px] font-semibold text-slate-500">
-                      Compte connecté
+                      Membres actifs
                     </p>
-                    <UserRound className="h-5 w-5 text-slate-600" />
+                    <Users className="h-5 w-5 text-slate-600" />
                   </div>
 
-                  <p className="mt-4 truncate text-[14px] font-bold text-slate-900">
-                    {userEmail}
+                  <p className="mt-4 text-[24px] font-extrabold text-slate-900">
+                    {activeMembersCount}
+                  </p>
+
+                  <p className="mt-1 text-[12px] text-slate-400">
+                    sur {memberCount} membre
+                    {memberCount > 1 ? "s" : ""}
                   </p>
                 </div>
               </div>
@@ -380,16 +492,16 @@ export default async function SettingsPage() {
                 <div className="border-b border-slate-100 px-5 py-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
-                      <Users className="h-5 w-5 text-slate-600" />
+                      <UserRound className="h-5 w-5 text-slate-600" />
                     </div>
 
                     <div>
                       <h3 className="text-[16px] font-extrabold text-slate-900">
-                        Utilisateurs et rôles
+                        Mon accès
                       </h3>
 
                       <p className="mt-1 text-[12px] text-slate-500">
-                        Votre accès actuel à l’organisation.
+                        Votre compte actuel dans l’organisation.
                       </p>
                     </div>
                   </div>
@@ -424,15 +536,160 @@ export default async function SettingsPage() {
                         : "Non actif"}
                     </span>
                   </div>
+                </div>
+              </div>
+            </section>
 
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[12px] leading-5 text-slate-500">
-                      La gestion des invitations et des autres
-                      utilisateurs sera ajoutée dans la prochaine
-                      étape.
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
+                    <Users className="h-5 w-5 text-red-500" />
+                  </div>
+
+                  <div>
+                    <h3 className="text-[16px] font-extrabold text-slate-900">
+                      Utilisateurs et rôles
+                    </h3>
+
+                    <p className="mt-1 text-[12px] text-slate-500">
+                      Membres rattachés à votre organisation.
                     </p>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  disabled
+                  title="L’invitation sera activée à la prochaine étape"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 text-[12px] font-bold text-slate-400"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Inviter un utilisateur
+                </button>
+              </div>
+
+              {visibleMembers.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50/70 text-left">
+                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                          Utilisateur
+                        </th>
+                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                          Téléphone
+                        </th>
+                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                          Rôle
+                        </th>
+                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                          Statut
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {visibleMembers.map((member) => {
+                        const profile =
+                          profilesById.get(member.user_id);
+
+                        const fullName = [
+                          profile?.first_name,
+                          profile?.last_name,
+                        ]
+                          .filter(Boolean)
+                          .join(" ");
+
+                        const isCurrentUser =
+                          member.user_id === user?.id;
+
+                        return (
+                          <tr
+                            key={member.id}
+                            className="border-b border-slate-100 last:border-b-0"
+                          >
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100">
+                                  <UserRound className="h-4 w-4 text-slate-500" />
+                                </div>
+
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="truncate text-[13px] font-bold text-slate-900">
+                                      {fullName ||
+                                        "Profil à compléter"}
+                                    </p>
+
+                                    {isCurrentUser ? (
+                                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                        Vous
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  <p className="mt-0.5 text-[11px] text-slate-400">
+                                    ID utilisateur :{" "}
+                                    {member.user_id.slice(0, 8)}…
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4 text-[13px] text-slate-600">
+                              {profile?.phone || "—"}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              <span
+                                className={[
+                                  "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
+                                  roleBadgeClass(member.role),
+                                ].join(" ")}
+                              >
+                                {formatRole(member.role)}
+                              </span>
+                            </td>
+
+                            <td className="px-5 py-4">
+                              <span
+                                className={[
+                                  "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
+                                  member.is_active
+                                    ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                                    : "bg-slate-100 text-slate-500 ring-slate-200",
+                                ].join(" ")}
+                              >
+                                {member.is_active
+                                  ? "Actif"
+                                  : "Inactif"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="px-5 py-10 text-center">
+                  <Users className="mx-auto h-8 w-8 text-slate-300" />
+                  <p className="mt-3 text-[13px] font-bold text-slate-700">
+                    Aucun membre visible
+                  </p>
+                  <p className="mt-1 text-[12px] text-slate-400">
+                    Les membres de l’organisation apparaîtront ici.
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+                <p className="text-[11px] text-slate-500">
+                  L’adresse e-mail des autres utilisateurs n’est pas
+                  exposée ici. Les invitations seront gérées côté
+                  serveur via Supabase Auth.
+                </p>
               </div>
             </section>
 
@@ -565,14 +822,15 @@ export default async function SettingsPage() {
 
                 <div>
                   <h3 className="text-[14px] font-bold text-slate-900">
-                    Paramètres V2
+                    Paramètres V3
                   </h3>
 
                   <p className="mt-1 text-[12px] leading-5 text-slate-600">
                     Les informations principales de l’agence sont
-                    maintenant modifiables par l’administrateur.
-                    Les rôles, invitations et autres paramètres
-                    seront activés progressivement.
+                    modifiables et les membres de l’organisation
+                    sont maintenant visibles selon les règles RLS.
+                    L’invitation d’utilisateurs sera la prochaine
+                    étape.
                   </p>
                 </div>
               </div>
