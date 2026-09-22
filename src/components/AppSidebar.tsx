@@ -102,6 +102,10 @@ export default function AppSidebar() {
   const inactiveClass =
     "text-white/75 hover:bg-white/5 hover:text-white";
 
+  const settingsActive =
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/");
+
   return (
     <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col bg-[#151515] px-3 py-4 text-white lg:flex">
       <div className="flex h-12 items-center gap-3 px-2">
@@ -170,15 +174,16 @@ export default function AppSidebar() {
       </nav>
 
       <div className="mt-auto">
-        <button
-          type="button"
-          disabled
-          title="Module à venir"
-          className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-white/45"
+        <Link
+          href="/settings"
+          className={[
+            baseClass,
+            settingsActive ? activeClass : inactiveClass,
+          ].join(" ")}
         >
           <Settings className="h-[17px] w-[17px]" />
           <span>Paramètres</span>
-        </button>
+        </Link>
 
         <div className="mt-3 flex items-center gap-3 border-t border-white/10 px-2 pt-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
