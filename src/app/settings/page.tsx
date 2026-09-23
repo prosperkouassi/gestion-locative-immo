@@ -106,7 +106,25 @@ type ProfileRow = {
   avatar_url: string | null;
 };
 
-export default async function SettingsPage() {
+type SettingsPageProps = {
+  searchParams: Promise<{
+    status?: string;
+    message?: string;
+  }>;
+};
+
+export default async function SettingsPage({
+  searchParams,
+}: SettingsPageProps) {
+  const params = await searchParams;
+  const feedbackMessage = params.message?.trim() || null;
+  const feedbackStatus =
+    params.status === "success"
+      ? "success"
+      : params.status === "error"
+        ? "error"
+        : null;
+
   const supabase = await createClient();
 
   const {
@@ -256,6 +274,26 @@ export default async function SettingsPage() {
           </header>
 
           <div className="space-y-6 p-5 md:p-8">
+            {feedbackMessage && feedbackStatus ? (
+              <div
+                role="status"
+                className={[
+                  "flex items-start gap-3 rounded-2xl border p-4 text-[13px] font-semibold shadow-sm",
+                  feedbackStatus === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-red-200 bg-red-50 text-red-700",
+                ].join(" ")}
+              >
+                {feedbackStatus === "success" ? (
+                  <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                ) : (
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                )}
+
+                <p>{feedbackMessage}</p>
+              </div>
+            ) : null}
+
             <section>
               <div className="mb-4">
                 <h2 className="text-[20px] font-extrabold text-slate-900">

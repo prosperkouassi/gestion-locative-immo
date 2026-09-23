@@ -10,6 +10,46 @@ const MANAGEABLE_ROLES = ["MANAGER", "OWNER", "TENANT"] as const;
 
 type ManageableRole = (typeof MANAGEABLE_ROLES)[number];
 
+function redirectToSettings(
+  status: "success" | "error",
+  message: string
+): never {
+  const params = new URLSearchParams({
+    status,
+    message,
+  });
+
+  redirect(`/settings?${params.toString()}`);
+}
+
+function getFriendlyInviteError(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("too many")
+  ) {
+    return "Trop de tentatives d’invitation ont été effectuées. Réessayez plus tard.";
+  }
+
+  if (
+    normalizedMessage.includes("error sending invite email") ||
+    normalizedMessage.includes("smtp")
+  ) {
+    return "L’invitation n’a pas pu être envoyée par e-mail. La configuration SMTP pourra être finalisée plus tard.";
+  }
+
+  if (
+    normalizedMessage.includes("already") ||
+    normalizedMessage.includes("registered") ||
+    normalizedMessage.includes("exists")
+  ) {
+    return "Un compte utilisant cette adresse e-mail existe déjà.";
+  }
+
+  return "L’invitation n’a pas pu être envoyée. Réessayez plus tard.";
+}
+
 function getRequiredText(
   formData: FormData,
   key: string,
@@ -123,13 +163,19 @@ export async function updateOrganizationAction(formData: FormData) {
     .eq("id", organizationId);
 
   if (updateError) {
-    throw new Error(
-      `Impossible de mettre à jour l’agence : ${updateError.message}`
+    redirectToSettings(
+      "error",
+      "Impossible de mettre à jour les informations de l’agence."
     );
   }
 
   revalidatePath("/settings");
   revalidatePath("/dashboard");
+
+  redirectToSettings(
+    "success",
+    "Les informations de l’agence ont été mises à jour."
+  );
 }
 
 export async function inviteUserAction(formData: FormData) {
@@ -189,16 +235,18 @@ export async function inviteUserAction(formData: FormData) {
     });
 
   if (inviteError) {
-    throw new Error(
-      `Impossible d’envoyer l’invitation : ${inviteError.message}`
+    redirectToSettings(
+      "error",
+      getFriendlyInviteError(inviteError.message)
     );
   }
 
   const invitedUser = inviteData.user;
 
   if (!invitedUser?.id) {
-    throw new Error(
-      "L’utilisateur a été invité, mais son identifiant n’a pas été retourné."
+    redirectToSettings(
+      "error",
+      "L’invitation a été créée, mais l’utilisateur n’a pas pu être finalisé."
     );
   }
 
@@ -218,8 +266,9 @@ export async function inviteUserAction(formData: FormData) {
     );
 
   if (profileError) {
-    throw new Error(
-      `Invitation créée, mais le profil n’a pas pu être enregistré : ${profileError.message}`
+    redirectToSettings(
+      "error",
+      "L’invitation a été créée, mais le profil utilisateur n’a pas pu être enregistré."
     );
   }
 
@@ -233,12 +282,18 @@ export async function inviteUserAction(formData: FormData) {
     });
 
   if (membershipError) {
-    throw new Error(
-      `Invitation créée, mais l’accès à l’agence n’a pas pu être enregistré : ${membershipError.message}`
+    redirectToSettings(
+      "error",
+      "L’invitation a été créée, mais l’accès à l’agence n’a pas pu être enregistré."
     );
   }
 
   revalidatePath("/settings");
+
+  redirectToSettings(
+    "success",
+    "L’utilisateur a été invité et son accès à l’agence a été créé."
+  );
 }
 
 export async function updateMemberAccessAction(formData: FormData) {
@@ -260,13 +315,17 @@ export async function updateMemberAccessAction(formData: FormData) {
   ).trim();
 
   if (!MANAGEABLE_ROLES.includes(roleValue as ManageableRole)) {
-    throw new Error(
+    redirectToSettings(
+      "error",
       "Le rôle sélectionné n’est pas autorisé pour ce membre."
     );
   }
 
   if (!["true", "false"].includes(activeValue)) {
-    throw new Error("Le statut d’accès sélectionné n’est pas valide.");
+    redirectToSettings(
+      "error",
+      "Le statut d’accès sélectionné n’est pas valide."
+    );
   }
 
   const admin = createAdminClient();
@@ -279,25 +338,29 @@ export async function updateMemberAccessAction(formData: FormData) {
     .maybeSingle();
 
   if (targetError) {
-    throw new Error(
-      `Impossible de vérifier ce membre : ${targetError.message}`
+    redirectToSettings(
+      "error",
+      "Impossible de vérifier ce membre."
     );
   }
 
   if (!targetMembership) {
-    throw new Error(
+    redirectToSettings(
+      "error",
       "Ce membre n’appartient pas à votre organisation."
     );
   }
 
   if (targetMembership.user_id === user.id) {
-    throw new Error(
+    redirectToSettings(
+      "error",
       "Vous ne pouvez pas modifier votre propre rôle ni désactiver votre propre accès."
     );
   }
 
   if (targetMembership.role === "ADMIN_AGENCY") {
-    throw new Error(
+    redirectToSettings(
+      "error",
       "Un accès administrateur d’agence ne peut pas être modifié depuis cette interface."
     );
   }
@@ -312,10 +375,16 @@ export async function updateMemberAccessAction(formData: FormData) {
     .eq("organization_id", organizationId);
 
   if (updateError) {
-    throw new Error(
-      `Impossible de mettre à jour ce membre : ${updateError.message}`
+    redirectToSettings(
+      "error",
+      "Impossible de mettre à jour ce membre."
     );
   }
 
   revalidatePath("/settings");
+
+  redirectToSettings(
+    "success",
+    "Le rôle et l’accès du membre ont été mis à jour."
+  );
 }
