@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -12,14 +13,37 @@ type ManageableRole = (typeof MANAGEABLE_ROLES)[number];
 
 function redirectToSettings(
   status: "success" | "error",
-  message: string
+  message: string,
+  extraParams?: Record<string, string>
 ): never {
   const params = new URLSearchParams({
     status,
     message,
+    ...extraParams,
   });
 
   redirect(`/settings?${params.toString()}`);
+}
+
+async function getRequestOrigin() {
+  const requestHeaders = await headers();
+
+  const host =
+    requestHeaders.get("x-forwarded-host") ??
+    requestHeaders.get("host") ??
+    "localhost:3000";
+
+  const forwardedProtocol =
+    requestHeaders.get("x-forwarded-proto");
+
+  const protocol =
+    forwardedProtocol ??
+    (host.startsWith("localhost") ||
+    host.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+
+  return `${protocol}://${host}`;
 }
 
 function getFriendlyInviteError(message: string) {
@@ -213,40 +237,105 @@ export async function inviteUserAction(formData: FormData) {
   ).trim();
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("L’adresse e-mail saisie n’est pas valide.");
+    redirectToSettings(
+      "error",
+      "L’adresse e-mail saisie n’est pas valide."
+    );
   }
 
   if (!MANAGEABLE_ROLES.includes(roleValue as ManageableRole)) {
-    throw new Error("Le rôle sélectionné n’est pas autorisé.");
+    redirectToSettings(
+      "error",
+      "Le rôle sélectionné n’est pas autorisé."
+    );
   }
 
   const role = roleValue as ManageableRole;
   const admin = createAdminClient();
 
-  const { data: inviteData, error: inviteError } =
-    await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        first_name: firstName,
-        last_name: lastName,
-        phone,
-        organization_id: organizationId,
-        organization_role: role,
-      },
-    });
+  const userMetadata = {
+    first_name: firstName,
+    last_name: lastName,
+    phone,
+    organization_id: organizationId,
+    organization_role: role,
+  };
 
-  if (inviteError) {
-    redirectToSettings(
-      "error",
-      getFriendlyInviteError(inviteError.message)
+  let invitedUserId: string | null = null;
+  let localActivationUrl: string | null = null;
+
+  /*
+   * En développement local, on ne dépend pas du SMTP :
+   * Supabase génère le lien d'invitation sans envoyer d'e-mail.
+   *
+   * En production, le flux normal reste inviteUserByEmail().
+   */
+  if (process.env.NODE_ENV === "development") {
+    const { data: linkData, error: linkError } =
+      await admin.auth.admin.generateLink({
+        type: "invite",
+        email,
+        options: {
+          data: userMetadata,
+        },
+      });
+
+    if (linkError) {
+      redirectToSettings(
+        "error",
+        getFriendlyInviteError(linkError.message)
+      );
+    }
+
+    invitedUserId = linkData.user?.id ?? null;
+
+    const hashedToken =
+      linkData.properties?.hashed_token ?? null;
+
+    if (!invitedUserId || !hashedToken) {
+      redirectToSettings(
+        "error",
+        "Le lien d’activation local n’a pas pu être généré."
+      );
+    }
+
+    const origin = await getRequestOrigin();
+
+    const activationUrl = new URL(
+      "/auth/confirm",
+      origin
     );
+
+    activationUrl.searchParams.set(
+      "token_hash",
+      hashedToken
+    );
+    activationUrl.searchParams.set(
+      "type",
+      "invite"
+    );
+
+    localActivationUrl = activationUrl.toString();
+  } else {
+    const { data: inviteData, error: inviteError } =
+      await admin.auth.admin.inviteUserByEmail(email, {
+        data: userMetadata,
+      });
+
+    if (inviteError) {
+      redirectToSettings(
+        "error",
+        getFriendlyInviteError(inviteError.message)
+      );
+    }
+
+    invitedUserId = inviteData.user?.id ?? null;
   }
 
-  const invitedUser = inviteData.user;
-
-  if (!invitedUser?.id) {
+  if (!invitedUserId) {
     redirectToSettings(
       "error",
-      "L’invitation a été créée, mais l’utilisateur n’a pas pu être finalisé."
+      "L’utilisateur a été créé, mais son identifiant n’a pas été retourné."
     );
   }
 
@@ -254,7 +343,7 @@ export async function inviteUserAction(formData: FormData) {
     .from("profiles")
     .upsert(
       {
-        id: invitedUser.id,
+        id: invitedUserId,
         first_name: firstName,
         last_name: lastName,
         phone,
@@ -268,7 +357,7 @@ export async function inviteUserAction(formData: FormData) {
   if (profileError) {
     redirectToSettings(
       "error",
-      "L’invitation a été créée, mais le profil utilisateur n’a pas pu être enregistré."
+      "L’utilisateur a été créé, mais son profil n’a pas pu être enregistré."
     );
   }
 
@@ -276,7 +365,7 @@ export async function inviteUserAction(formData: FormData) {
     .from("organization_members")
     .insert({
       organization_id: organizationId,
-      user_id: invitedUser.id,
+      user_id: invitedUserId,
       role,
       is_active: true,
     });
@@ -284,11 +373,21 @@ export async function inviteUserAction(formData: FormData) {
   if (membershipError) {
     redirectToSettings(
       "error",
-      "L’invitation a été créée, mais l’accès à l’agence n’a pas pu être enregistré."
+      "L’utilisateur a été créé, mais son accès à l’agence n’a pas pu être enregistré."
     );
   }
 
   revalidatePath("/settings");
+
+  if (localActivationUrl) {
+    redirectToSettings(
+      "success",
+      "L’utilisateur a été créé. Copiez le lien d’activation local ci-dessous et ouvrez-le dans une fenêtre privée.",
+      {
+        activation: localActivationUrl,
+      }
+    );
+  }
 
   redirectToSettings(
     "success",

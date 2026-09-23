@@ -110,6 +110,7 @@ type SettingsPageProps = {
   searchParams: Promise<{
     status?: string;
     message?: string;
+    activation?: string;
   }>;
 };
 
@@ -124,6 +125,12 @@ export default async function SettingsPage({
       : params.status === "error"
         ? "error"
         : null;
+
+  const activationLink =
+    process.env.NODE_ENV === "development" &&
+    params.activation?.startsWith("http")
+      ? params.activation
+      : null;
 
   const supabase = await createClient();
 
@@ -291,6 +298,39 @@ export default async function SettingsPage({
                 )}
 
                 <p>{feedbackMessage}</p>
+              </div>
+            ) : null}
+
+            {activationLink ? (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[14px] font-extrabold text-slate-900">
+                      Lien d’activation local
+                    </h3>
+
+                    <p className="mt-1 text-[12px] leading-5 text-slate-600">
+                      Copiez ce lien puis ouvrez-le dans une fenêtre
+                      privée/incognito. Ne l’ouvrez pas dans la session
+                      administrateur actuelle.
+                    </p>
+
+                    <input
+                      type="text"
+                      readOnly
+                      value={activationLink}
+                      className="mt-3 h-11 w-full rounded-xl border border-blue-200 bg-white px-3 text-[12px] text-slate-700 outline-none"
+                    />
+
+                    <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                      Ce lien contient un jeton d’activation temporaire.
+                      Il est affiché uniquement pour le développement local
+                      et ne doit pas être partagé.
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : null}
 
