@@ -22,7 +22,11 @@ import {
 import AppSidebar from "@/components/AppSidebar";
 import { createClient } from "@/lib/supabase/server";
 
-import { updateOrganizationAction } from "./actions";
+import {
+  inviteUserAction,
+  updateMemberAccessAction,
+  updateOrganizationAction,
+} from "./actions";
 
 function formatRole(role: string | null | undefined) {
   switch (role) {
@@ -259,9 +263,8 @@ export default async function SettingsPage() {
                 </h2>
 
                 <p className="mt-1 text-[13px] text-slate-500">
-                  Gérez progressivement les informations de
-                  l’agence, les accès, les documents et les règles
-                  de gestion.
+                  Gérez les informations de l’agence, les accès,
+                  les documents et les règles de gestion.
                 </p>
               </div>
 
@@ -476,15 +479,6 @@ export default async function SettingsPage() {
                       Enregistrer
                     </button>
                   </div>
-
-                  {!canEditOrganization ? (
-                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
-                      <p className="text-[12px] font-medium text-amber-700">
-                        Seul un administrateur d’agence peut
-                        modifier ces informations.
-                      </p>
-                    </div>
-                  ) : null}
                 </form>
               </div>
 
@@ -540,8 +534,123 @@ export default async function SettingsPage() {
               </div>
             </section>
 
+            {canEditOrganization ? (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-5 py-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
+                      <UserPlus className="h-5 w-5 text-red-500" />
+                    </div>
+
+                    <div>
+                      <h3 className="text-[16px] font-extrabold text-slate-900">
+                        Inviter un utilisateur
+                      </h3>
+
+                      <p className="mt-1 text-[12px] text-slate-500">
+                        Créez un accès et envoyez une invitation par e-mail.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <form
+                  action={inviteUserAction}
+                  className="space-y-5 p-5"
+                >
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <label className="space-y-1.5 xl:col-span-2">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Email *
+                      </span>
+                      <input
+                        name="invite_email"
+                        type="email"
+                        required
+                        maxLength={160}
+                        placeholder="utilisateur@exemple.com"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Prénom *
+                      </span>
+                      <input
+                        name="invite_first_name"
+                        type="text"
+                        required
+                        maxLength={120}
+                        placeholder="Prénom"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Nom *
+                      </span>
+                      <input
+                        name="invite_last_name"
+                        type="text"
+                        required
+                        maxLength={120}
+                        placeholder="Nom"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5 xl:col-span-2">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Téléphone
+                      </span>
+                      <input
+                        name="invite_phone"
+                        type="tel"
+                        maxLength={40}
+                        placeholder="+225 00 00 00 00 00"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      />
+                    </label>
+
+                    <label className="space-y-1.5 xl:col-span-2">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Rôle *
+                      </span>
+                      <select
+                        name="invite_role"
+                        required
+                        defaultValue="MANAGER"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 outline-none transition focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      >
+                        <option value="MANAGER">Gestionnaire</option>
+                        <option value="OWNER">Propriétaire</option>
+                        <option value="TENANT">Locataire</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="max-w-2xl text-[11px] leading-5 text-slate-500">
+                      La configuration SMTP peut être finalisée plus tard.
+                      La logique d’invitation reste prête côté serveur.
+                    </p>
+
+                    <button
+                      type="submit"
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 text-[13px] font-bold text-white shadow-sm transition hover:bg-red-600"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      Envoyer l’invitation
+                    </button>
+                  </div>
+                </form>
+              </section>
+            ) : null}
+
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="border-b border-slate-100 px-5 py-5">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
                     <Users className="h-5 w-5 text-red-500" />
@@ -553,124 +662,146 @@ export default async function SettingsPage() {
                     </h3>
 
                     <p className="mt-1 text-[12px] text-slate-500">
-                      Membres rattachés à votre organisation.
+                      Modifiez le rôle ou l’état d’accès des membres.
                     </p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  disabled
-                  title="L’invitation sera activée à la prochaine étape"
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 text-[12px] font-bold text-slate-400"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Inviter un utilisateur
-                </button>
               </div>
 
               {visibleMembers.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px]">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/70 text-left">
-                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                          Utilisateur
-                        </th>
-                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                          Téléphone
-                        </th>
-                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                          Rôle
-                        </th>
-                        <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                          Statut
-                        </th>
-                      </tr>
-                    </thead>
+                <div className="divide-y divide-slate-100">
+                  {visibleMembers.map((member) => {
+                    const profile =
+                      profilesById.get(member.user_id);
 
-                    <tbody>
-                      {visibleMembers.map((member) => {
-                        const profile =
-                          profilesById.get(member.user_id);
+                    const fullName = [
+                      profile?.first_name,
+                      profile?.last_name,
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
 
-                        const fullName = [
-                          profile?.first_name,
-                          profile?.last_name,
-                        ]
-                          .filter(Boolean)
-                          .join(" ");
+                    const isCurrentUser =
+                      member.user_id === user?.id;
 
-                        const isCurrentUser =
-                          member.user_id === user?.id;
+                    const canManageMember =
+                      canEditOrganization &&
+                      !isCurrentUser &&
+                      member.role !== "ADMIN_AGENCY";
 
-                        return (
-                          <tr
-                            key={member.id}
-                            className="border-b border-slate-100 last:border-b-0"
+                    return (
+                      <div
+                        key={member.id}
+                        className="grid gap-4 px-5 py-5 xl:grid-cols-[1.2fr_0.8fr_1.8fr] xl:items-center"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
+                            <UserRound className="h-4 w-4 text-slate-500" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-[13px] font-bold text-slate-900">
+                                {fullName || "Profil à compléter"}
+                              </p>
+
+                              {isCurrentUser ? (
+                                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                  Vous
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              {profile?.phone || "Téléphone non renseigné"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span
+                            className={[
+                              "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
+                              roleBadgeClass(member.role),
+                            ].join(" ")}
                           >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100">
-                                  <UserRound className="h-4 w-4 text-slate-500" />
-                                </div>
+                            {formatRole(member.role)}
+                          </span>
 
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="truncate text-[13px] font-bold text-slate-900">
-                                      {fullName ||
-                                        "Profil à compléter"}
-                                    </p>
+                          <span
+                            className={[
+                              "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
+                              member.is_active
+                                ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                                : "bg-slate-100 text-slate-500 ring-slate-200",
+                            ].join(" ")}
+                          >
+                            {member.is_active ? "Actif" : "Inactif"}
+                          </span>
+                        </div>
 
-                                    {isCurrentUser ? (
-                                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                                        Vous
-                                      </span>
-                                    ) : null}
-                                  </div>
+                        {canManageMember ? (
+                          <form
+                            action={updateMemberAccessAction}
+                            className="grid gap-3 sm:grid-cols-[1fr_145px_auto] sm:items-end"
+                          >
+                            <input
+                              type="hidden"
+                              name="membership_id"
+                              value={member.id}
+                            />
 
-                                  <p className="mt-0.5 text-[11px] text-slate-400">
-                                    ID utilisateur :{" "}
-                                    {member.user_id.slice(0, 8)}…
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="px-5 py-4 text-[13px] text-slate-600">
-                              {profile?.phone || "—"}
-                            </td>
-
-                            <td className="px-5 py-4">
-                              <span
-                                className={[
-                                  "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
-                                  roleBadgeClass(member.role),
-                                ].join(" ")}
-                              >
-                                {formatRole(member.role)}
+                            <label className="space-y-1.5">
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                Rôle
                               </span>
-                            </td>
 
-                            <td className="px-5 py-4">
-                              <span
-                                className={[
-                                  "inline-flex rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset",
-                                  member.is_active
-                                    ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                                    : "bg-slate-100 text-slate-500 ring-slate-200",
-                                ].join(" ")}
+                              <select
+                                name="member_role"
+                                defaultValue={member.role ?? "MANAGER"}
+                                className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-900 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
                               >
-                                {member.is_active
-                                  ? "Actif"
-                                  : "Inactif"}
+                                <option value="MANAGER">Gestionnaire</option>
+                                <option value="OWNER">Propriétaire</option>
+                                <option value="TENANT">Locataire</option>
+                              </select>
+                            </label>
+
+                            <label className="space-y-1.5">
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                Accès
                               </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+
+                              <select
+                                name="member_is_active"
+                                defaultValue={
+                                  member.is_active ? "true" : "false"
+                                }
+                                className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] text-slate-900 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                              >
+                                <option value="true">Actif</option>
+                                <option value="false">Inactif</option>
+                              </select>
+                            </label>
+
+                            <button
+                              type="submit"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-[12px] font-bold text-white transition hover:bg-slate-800"
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                              Enregistrer
+                            </button>
+                          </form>
+                        ) : (
+                          <p className="text-[11px] leading-5 text-slate-400">
+                            {isCurrentUser
+                              ? "Votre propre accès administrateur est protégé contre les modifications accidentelles."
+                              : "Cet accès administrateur est protégé."}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="px-5 py-10 text-center">
@@ -678,19 +809,8 @@ export default async function SettingsPage() {
                   <p className="mt-3 text-[13px] font-bold text-slate-700">
                     Aucun membre visible
                   </p>
-                  <p className="mt-1 text-[12px] text-slate-400">
-                    Les membres de l’organisation apparaîtront ici.
-                  </p>
                 </div>
               )}
-
-              <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3">
-                <p className="text-[11px] text-slate-500">
-                  L’adresse e-mail des autres utilisateurs n’est pas
-                  exposée ici. Les invitations seront gérées côté
-                  serveur via Supabase Auth.
-                </p>
-              </div>
             </section>
 
             <section>
@@ -710,14 +830,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
                       <SlidersHorizontal className="h-5 w-5 text-red-500" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Préférences générales
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Devise, formats, comportements et
-                        préférences générales de l’agence.
+                        Devise, formats et préférences générales.
                       </p>
                     </div>
                   </div>
@@ -728,14 +846,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
                       <ReceiptText className="h-5 w-5 text-red-500" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Numérotation des documents
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Préfixes et règles des reçus, quittances
-                        et futurs documents.
+                        Préfixes et règles des reçus et quittances.
                       </p>
                     </div>
                   </div>
@@ -746,14 +862,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
                       <CreditCard className="h-5 w-5 text-red-500" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Loyers et paiements
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Jours d’échéance, méthodes de paiement et
-                        règles financières de l’agence.
+                        Échéances, paiements et règles financières.
                       </p>
                     </div>
                   </div>
@@ -764,14 +878,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
                       <ShieldCheck className="h-5 w-5 text-slate-600" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Sécurité
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Sessions, permissions, contrôle des accès
-                        et audit.
+                        Sessions, permissions et contrôle des accès.
                       </p>
                     </div>
                   </div>
@@ -782,14 +894,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
                       <KeyRound className="h-5 w-5 text-slate-600" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Accès et invitations
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Invitations d’utilisateurs et affectation
-                        des rôles organisationnels.
+                        Invitations et rôles organisationnels.
                       </p>
                     </div>
                   </div>
@@ -800,15 +910,12 @@ export default async function SettingsPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
                       <LockKeyhole className="h-5 w-5 text-slate-600" />
                     </div>
-
                     <div>
                       <h3 className="text-[15px] font-bold text-slate-900">
                         Contrôles sensibles
                       </h3>
                       <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                        Actions administratives protégées et
-                        opérations nécessitant une autorisation
-                        renforcée.
+                        Actions administratives protégées.
                       </p>
                     </div>
                   </div>
@@ -822,15 +929,14 @@ export default async function SettingsPage() {
 
                 <div>
                   <h3 className="text-[14px] font-bold text-slate-900">
-                    Paramètres V3
+                    Paramètres V5
                   </h3>
 
                   <p className="mt-1 text-[12px] leading-5 text-slate-600">
-                    Les informations principales de l’agence sont
-                    modifiables et les membres de l’organisation
-                    sont maintenant visibles selon les règles RLS.
-                    L’invitation d’utilisateurs sera la prochaine
-                    étape.
+                    Les administrateurs d’agence peuvent maintenant
+                    modifier le rôle et activer ou désactiver les
+                    autres membres, tout en protégeant leur propre
+                    accès administrateur.
                   </p>
                 </div>
               </div>
