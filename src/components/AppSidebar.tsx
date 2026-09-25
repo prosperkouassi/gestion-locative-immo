@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   Building2,
@@ -19,79 +20,189 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { createClient } from "@/lib/supabase/client";
+
+type OrganizationRole =
+  | "ADMIN_AGENCY"
+  | "MANAGER"
+  | "OWNER"
+  | "TENANT";
+
 type NavItem = {
   label: string;
   icon: React.ComponentType<{
     className?: string;
   }>;
-  href?: string;
+  href: string;
+  roles: OrganizationRole[];
 };
+
+const ALL_ROLES: OrganizationRole[] = [
+  "ADMIN_AGENCY",
+  "MANAGER",
+  "OWNER",
+  "TENANT",
+];
+
+const ADMIN_AND_MANAGER: OrganizationRole[] = [
+  "ADMIN_AGENCY",
+  "MANAGER",
+];
 
 const navItems: NavItem[] = [
   {
     label: "Tableau de bord",
     icon: LayoutDashboard,
     href: "/dashboard",
+    roles: ALL_ROLES,
   },
   {
     label: "Propriétaires",
     icon: CircleUserRound,
     href: "/owners",
+    roles: ADMIN_AND_MANAGER,
   },
   {
     label: "Biens",
     icon: Building2,
     href: "/properties",
+    roles: ["ADMIN_AGENCY", "MANAGER", "OWNER"],
   },
   {
     label: "Unités",
     icon: Home,
     href: "/units",
+    roles: ["ADMIN_AGENCY", "MANAGER", "OWNER"],
   },
   {
     label: "Locataires",
     icon: Users,
     href: "/tenants",
+    roles: ADMIN_AND_MANAGER,
   },
   {
     label: "Baux",
     icon: FileText,
     href: "/leases",
+    roles: ALL_ROLES,
   },
   {
     label: "Échéances",
     icon: CalendarDays,
     href: "/schedules",
+    roles: ALL_ROLES,
   },
   {
     label: "Paiements",
     icon: CreditCard,
     href: "/payments",
+    roles: ALL_ROLES,
   },
   {
     label: "Dépenses",
     icon: WalletCards,
     href: "/expenses",
+    roles: ["ADMIN_AGENCY", "MANAGER", "OWNER"],
   },
   {
     label: "Maintenance",
     icon: Wrench,
     href: "/maintenance",
+    roles: ALL_ROLES,
   },
   {
     label: "Documents",
     icon: ReceiptText,
     href: "/documents",
+    roles: ALL_ROLES,
   },
   {
     label: "Rapports",
     icon: BarChart3,
     href: "/reports",
+    roles: ["ADMIN_AGENCY", "MANAGER", "OWNER"],
   },
 ];
 
+function formatRole(role: OrganizationRole | null) {
+  switch (role) {
+    case "ADMIN_AGENCY":
+      return "Administrateur";
+    case "MANAGER":
+      return "Gestionnaire";
+    case "OWNER":
+      return "Propriétaire";
+    case "TENANT":
+      return "Locataire";
+    default:
+      return "Utilisateur";
+  }
+}
+
 export default function AppSidebar() {
   const pathname = usePathname();
+  const [role, setRole] = useState<OrganizationRole | null>(null);
+  const [organizationName, setOrganizationName] =
+    useState("Chargement...");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAccess() {
+      const supabase = createClient();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user || !isMounted) {
+        return;
+      }
+
+      const { data: membership } = await supabase
+        .from("organization_members")
+        .select("organization_id, role, is_active")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (!membership || !isMounted) {
+        return;
+      }
+
+      const membershipRole =
+        membership.role as OrganizationRole;
+
+      setRole(membershipRole);
+
+      const { data: organization } = await supabase
+        .from("organizations")
+        .select("name")
+        .eq("id", membership.organization_id)
+        .maybeSingle();
+
+      if (organization?.name && isMounted) {
+        setOrganizationName(organization.name);
+      }
+    }
+
+    void loadAccess();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const visibleNavItems = useMemo(() => {
+    if (!role) {
+      return [];
+    }
+
+    return navItems.filter((item) =>
+      item.roles.includes(role)
+    );
+  }, [role]);
 
   const baseClass =
     "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium transition";
@@ -128,18 +239,16 @@ export default function AppSidebar() {
       </div>
 
       <nav className="mt-6 space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
+        {role ? (
+          visibleNavItems.map((item) => {
+            const Icon = item.icon;
 
-          const isActive =
-            item.href === "/dashboard"
-              ? pathname === "/dashboard"
-              : item.href
-                ? pathname === item.href ||
-                  pathname.startsWith(`${item.href}/`)
-                : false;
+            const isActive =
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
 
-          if (item.href) {
             return (
               <Link
                 key={item.label}
@@ -153,37 +262,29 @@ export default function AppSidebar() {
                 <span>{item.label}</span>
               </Link>
             );
-          }
-
-          return (
-            <button
-              key={item.label}
-              type="button"
-              disabled
-              title="Module à venir"
-              className={[
-                baseClass,
-                "cursor-not-allowed text-white/35",
-              ].join(" ")}
-            >
-              <Icon className="h-[17px] w-[17px]" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+          })
+        ) : (
+          <div className="space-y-2 px-2 py-2">
+            <div className="h-9 animate-pulse rounded-xl bg-white/5" />
+            <div className="h-9 animate-pulse rounded-xl bg-white/5" />
+            <div className="h-9 animate-pulse rounded-xl bg-white/5" />
+          </div>
+        )}
       </nav>
 
       <div className="mt-auto">
-        <Link
-          href="/settings"
-          className={[
-            baseClass,
-            settingsActive ? activeClass : inactiveClass,
-          ].join(" ")}
-        >
-          <Settings className="h-[17px] w-[17px]" />
-          <span>Paramètres</span>
-        </Link>
+        {role ? (
+          <Link
+            href="/settings"
+            className={[
+              baseClass,
+              settingsActive ? activeClass : inactiveClass,
+            ].join(" ")}
+          >
+            <Settings className="h-[17px] w-[17px]" />
+            <span>Paramètres</span>
+          </Link>
+        ) : null}
 
         <div className="mt-3 flex items-center gap-3 border-t border-white/10 px-2 pt-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
@@ -192,11 +293,11 @@ export default function AppSidebar() {
 
           <div className="min-w-0">
             <p className="truncate text-[13px] font-semibold">
-              Administrateur
+              {formatRole(role)}
             </p>
 
             <p className="truncate text-[11px] text-white/40">
-              Agence Alteract
+              {organizationName}
             </p>
           </div>
         </div>

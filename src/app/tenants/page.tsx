@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
-import { createClient } from "@/lib/supabase/server";
+import { requireAdminOrManager } from "@/lib/auth/access";
 
 function formatTenantName(
   firstName: string | null,
@@ -87,7 +87,7 @@ function formatLeaseStatus(status: string | null) {
 }
 
 export default async function TenantsPage() {
-  const supabase = await createClient();
+  const { supabase } = await requireAdminOrManager();
 
   const { data: tenants } = await supabase
     .from("tenants")

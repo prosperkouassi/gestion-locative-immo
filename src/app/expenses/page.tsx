@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
-import { createClient } from "@/lib/supabase/server";
+import { requireRoles } from "@/lib/auth/access";
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -90,7 +90,11 @@ function getExpenseStatus(status: string) {
 }
 
 export default async function ExpensesPage() {
-  const supabase = await createClient();
+  const { supabase } = await requireRoles([
+    "ADMIN_AGENCY",
+    "MANAGER",
+    "OWNER",
+  ]);
 
   const { data: expenses } = await supabase
     .from("expenses")

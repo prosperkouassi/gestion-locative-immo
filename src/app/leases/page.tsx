@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
-import { createClient } from "@/lib/supabase/server";
+import { requireActiveMembership } from "@/lib/auth/access";
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -83,12 +83,18 @@ function formatLeaseStatus(status: string) {
 }
 
 export default async function LeasesPage() {
-  const supabase = await createClient();
+  const { supabase, membership } =
+    await requireActiveMembership();
+
+  const canManageLeases = [
+    "ADMIN_AGENCY",
+    "MANAGER",
+  ].includes(membership.role);
 
   const { data: leases } = await supabase
     .from("leases")
     .select(
-      "id, tenant_id, unit_id, status, start_date, end_date, effective_end_date, monthly_rent, currency, deposit_amount, due_day, created_at"
+      "id, tenant_id, unit_id, status, start_date, end_date, effective_end_date, monthly_rent, currency, security_deposit, payment_due_day, created_at"
     )
     .order("created_at", { ascending: false });
 
@@ -187,8 +193,8 @@ export default async function LeasesPage() {
       startDate: lease.start_date,
       endDate: effectiveEnd,
       monthlyRent: Number(lease.monthly_rent ?? 0),
-      depositAmount: Number(lease.deposit_amount ?? 0),
-      dueDay: lease.due_day,
+      depositAmount: Number(lease.security_deposit ?? 0),
+      dueDay: lease.payment_due_day,
       isCurrent,
     };
   });
@@ -246,13 +252,15 @@ export default async function LeasesPage() {
                 <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />
               </button>
 
-              <button
-                type="button"
-                className="flex h-10 items-center gap-2 rounded-xl bg-red-500 px-4 text-[13px] font-bold text-white shadow-sm transition hover:bg-red-600"
-              >
-                <Plus className="h-4 w-4" />
-                Créer un bail
-              </button>
+              {canManageLeases ? (
+                <button
+                  type="button"
+                  className="flex h-10 items-center gap-2 rounded-xl bg-red-500 px-4 text-[13px] font-bold text-white shadow-sm transition hover:bg-red-600"
+                >
+                  <Plus className="h-4 w-4" />
+                  Créer un bail
+                </button>
+              ) : null}
             </div>
           </header>
 

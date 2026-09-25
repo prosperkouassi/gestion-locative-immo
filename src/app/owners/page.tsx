@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
-import { createClient } from "@/lib/supabase/server";
+import { requireAdminOrManager } from "@/lib/auth/access";
 
 function formatOwnerName(firstName: string | null, lastName: string | null) {
   return `${firstName ?? ""} ${lastName ?? ""}`.trim() || "Propriétaire";
@@ -24,7 +24,7 @@ function formatInitials(firstName: string | null, lastName: string | null) {
 }
 
 export default async function OwnersPage() {
-  const supabase = await createClient();
+  const { supabase } = await requireAdminOrManager();
 
   const { data: owners } = await supabase
     .from("owners")
