@@ -3,14 +3,16 @@ import {
   Bell,
   Download,
   FileText,
+  FolderOpen,
   ReceiptText,
   Search,
+  ShieldCheck,
   UserRound,
   WalletCards,
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
-import { createClient } from "@/lib/supabase/server";
+import { requireActiveMembership } from "@/lib/auth/access";
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -21,7 +23,10 @@ function formatXof(value: number) {
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
 
-  const normalized = value.length === 10 ? `${value}T00:00:00Z` : value;
+  const normalized =
+    value.length === 10
+      ? `${value}T00:00:00Z`
+      : value;
 
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
@@ -31,14 +36,60 @@ function formatDate(value: string | null | undefined) {
   }).format(new Date(normalized));
 }
 
+function formatFileSize(value: number | null) {
+  if (value === null || value < 0) return "—";
+
+  if (value < 1024) {
+    return `${value} o`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${Math.round(value / 1024)} Ko`;
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
 function formatTenantName(
   firstName: string | null | undefined,
   lastName: string | null | undefined
 ) {
-  return `${firstName ?? ""} ${lastName ?? ""}`.trim() || "Locataire";
+  return (
+    `${firstName ?? ""} ${lastName ?? ""}`.trim() ||
+    "Locataire"
+  );
 }
 
-type DocumentRow = {
+function formatDocumentType(type: string) {
+  switch (type) {
+    case "LEASE":
+      return "Bail";
+
+    case "RECEIPT":
+      return "Reçu";
+
+    case "QUITTANCE":
+      return "Quittance";
+
+    case "INVOICE":
+      return "Facture";
+
+    case "IDENTITY":
+      return "Identité";
+
+    case "PROPERTY":
+      return "Bien";
+
+    case "MAINTENANCE":
+      return "Maintenance";
+
+    case "OTHER":
+    default:
+      return "Autre";
+  }
+}
+
+type GeneratedDocumentRow = {
   id: string;
   type: "RECEIPT" | "QUITTANCE";
   number: string;
@@ -48,73 +99,194 @@ type DocumentRow = {
   pdfHref: string;
 };
 
-export default async function DocumentsPage() {
-  const supabase = await createClient();
+type SharedDocumentRow = {
+  id: string;
+  title: string;
+  documentType: string;
+  storagePath: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  createdAt: string;
+  ownerVisible: boolean;
+  tenantVisible: boolean;
+  signedUrl: string | null;
+};
 
-  const [receiptsResult, quittancesResult] = await Promise.all([
+export default async function DocumentsPage() {
+  const { supabase, membership } =
+    await requireActiveMembership();
+
+  const canManageDocuments = [
+    "ADMIN_AGENCY",
+    "MANAGER",
+  ].includes(membership.role);
+
+  const [
+    sharedDocumentsResult,
+    receiptsResult,
+    quittancesResult,
+  ] = await Promise.all([
+    supabase
+      .from("documents")
+      .select(
+        "id, title, document_type, storage_path, mime_type, file_size, is_visible_to_owner, is_visible_to_tenant, created_at"
+      )
+      .order("created_at", {
+        ascending: false,
+      }),
+
     supabase
       .from("receipts")
       .select("*")
-      .order("created_at", { ascending: false }),
+      .order("created_at", {
+        ascending: false,
+      }),
 
     supabase
       .from("rent_quittances")
       .select("*")
-      .order("created_at", { ascending: false }),
+      .order("created_at", {
+        ascending: false,
+      }),
   ]);
 
-  const receipts = receiptsResult.data ?? [];
-  const quittances = quittancesResult.data ?? [];
+  const sharedDocuments =
+    sharedDocumentsResult.data ?? [];
+
+  const receipts =
+    receiptsResult.data ?? [];
+
+  const quittances =
+    quittancesResult.data ?? [];
+
+  const sharedRows: SharedDocumentRow[] =
+    await Promise.all(
+      sharedDocuments.map(
+        async (document) => {
+          const { data: signedData } =
+            await supabase.storage
+              .from("documents")
+              .createSignedUrl(
+                document.storage_path,
+                60 * 5
+              );
+
+          return {
+            id: document.id,
+            title: document.title,
+            documentType:
+              document.document_type,
+            storagePath:
+              document.storage_path,
+            mimeType:
+              document.mime_type,
+            fileSize:
+              document.file_size === null
+                ? null
+                : Number(
+                    document.file_size
+                  ),
+            createdAt:
+              document.created_at,
+            ownerVisible:
+              document.is_visible_to_owner,
+            tenantVisible:
+              document.is_visible_to_tenant,
+            signedUrl:
+              signedData?.signedUrl ??
+              null,
+          };
+        }
+      )
+    );
 
   const paymentIds = Array.from(
     new Set(
       receipts
-        .map((receipt) => receipt.payment_id)
-        .filter((id): id is string => Boolean(id))
+        .map(
+          (receipt) =>
+            receipt.payment_id
+        )
+        .filter(
+          (id): id is string =>
+            Boolean(id)
+        )
     )
   );
 
-  const quittanceScheduleIds = Array.from(
-    new Set(
-      quittances
-        .map((quittance) => quittance.schedule_id)
-        .filter((id): id is string => Boolean(id))
-    )
-  );
+  const quittanceScheduleIds =
+    Array.from(
+      new Set(
+        quittances
+          .map(
+            (quittance) =>
+              quittance.rent_schedule_id
+          )
+          .filter(
+            (id): id is string =>
+              Boolean(id)
+          )
+      )
+    );
 
   const { data: payments } =
     paymentIds.length > 0
       ? await supabase
           .from("payments")
-          .select("id, schedule_id")
-          .in("id", paymentIds)
+          .select(
+            "id, rent_schedule_id"
+          )
+          .in(
+            "id",
+            paymentIds
+          )
       : { data: [] };
 
-  const receiptScheduleIds = Array.from(
-    new Set(
-      (payments ?? [])
-        .map((payment) => payment.schedule_id)
-        .filter((id): id is string => Boolean(id))
-    )
-  );
+  const receiptScheduleIds =
+    Array.from(
+      new Set(
+        (payments ?? [])
+          .map(
+            (payment) =>
+              payment.rent_schedule_id
+          )
+          .filter(
+            (id): id is string =>
+              Boolean(id)
+          )
+      )
+    );
 
-  const allScheduleIds = Array.from(
-    new Set([...receiptScheduleIds, ...quittanceScheduleIds])
-  );
+  const allScheduleIds =
+    Array.from(
+      new Set([
+        ...receiptScheduleIds,
+        ...quittanceScheduleIds,
+      ])
+    );
 
   const { data: schedules } =
     allScheduleIds.length > 0
       ? await supabase
           .from("rent_schedules")
           .select("id, lease_id")
-          .in("id", allScheduleIds)
+          .in(
+            "id",
+            allScheduleIds
+          )
       : { data: [] };
 
   const leaseIds = Array.from(
     new Set(
       (schedules ?? [])
-        .map((schedule) => schedule.lease_id)
-        .filter((id): id is string => Boolean(id))
+        .map(
+          (schedule) =>
+            schedule.lease_id
+        )
+        .filter(
+          (id): id is string =>
+            Boolean(id)
+        )
     )
   );
 
@@ -123,14 +295,23 @@ export default async function DocumentsPage() {
       ? await supabase
           .from("leases")
           .select("id, tenant_id")
-          .in("id", leaseIds)
+          .in(
+            "id",
+            leaseIds
+          )
       : { data: [] };
 
   const tenantIds = Array.from(
     new Set(
       (leases ?? [])
-        .map((lease) => lease.tenant_id)
-        .filter((id): id is string => Boolean(id))
+        .map(
+          (lease) =>
+            lease.tenant_id
+        )
+        .filter(
+          (id): id is string =>
+            Boolean(id)
+        )
     )
   );
 
@@ -138,37 +319,85 @@ export default async function DocumentsPage() {
     tenantIds.length > 0
       ? await supabase
           .from("tenants")
-          .select("id, first_name, last_name")
-          .in("id", tenantIds)
+          .select(
+            "id, first_name, last_name"
+          )
+          .in(
+            "id",
+            tenantIds
+          )
       : { data: [] };
 
   const paymentMap = new Map(
-    (payments ?? []).map((payment) => [payment.id, payment])
+    (payments ?? []).map(
+      (payment) => [
+        payment.id,
+        payment,
+      ]
+    )
   );
 
   const scheduleMap = new Map(
-    (schedules ?? []).map((schedule) => [schedule.id, schedule])
+    (schedules ?? []).map(
+      (schedule) => [
+        schedule.id,
+        schedule,
+      ]
+    )
   );
 
   const leaseMap = new Map(
-    (leases ?? []).map((lease) => [lease.id, lease])
+    (leases ?? []).map(
+      (lease) => [
+        lease.id,
+        lease,
+      ]
+    )
   );
 
   const tenantMap = new Map(
-    (tenants ?? []).map((tenant) => [tenant.id, tenant])
+    (tenants ?? []).map(
+      (tenant) => [
+        tenant.id,
+        tenant,
+      ]
+    )
   );
 
-  function tenantNameFromSchedule(scheduleId: string | null | undefined) {
-    if (!scheduleId) return "Locataire non renseigné";
+  function tenantNameFromSchedule(
+    scheduleId:
+      | string
+      | null
+      | undefined
+  ) {
+    if (!scheduleId) {
+      return "Locataire non renseigné";
+    }
 
-    const schedule = scheduleMap.get(scheduleId);
-    if (!schedule) return "Locataire non renseigné";
+    const schedule =
+      scheduleMap.get(scheduleId);
 
-    const lease = leaseMap.get(schedule.lease_id);
-    if (!lease) return "Locataire non renseigné";
+    if (!schedule) {
+      return "Locataire non renseigné";
+    }
 
-    const tenant = tenantMap.get(lease.tenant_id);
-    if (!tenant) return "Locataire non renseigné";
+    const lease =
+      leaseMap.get(
+        schedule.lease_id
+      );
+
+    if (!lease) {
+      return "Locataire non renseigné";
+    }
+
+    const tenant =
+      tenantMap.get(
+        lease.tenant_id
+      );
+
+    if (!tenant) {
+      return "Locataire non renseigné";
+    }
 
     return formatTenantName(
       tenant.first_name,
@@ -176,55 +405,102 @@ export default async function DocumentsPage() {
     );
   }
 
-  const receiptRows: DocumentRow[] = receipts.map((receipt) => {
-    const payment = paymentMap.get(receipt.payment_id);
+  const receiptRows:
+    GeneratedDocumentRow[] =
+      receipts.map(
+        (receipt) => {
+          const payment =
+            paymentMap.get(
+              receipt.payment_id
+            );
 
-    return {
-      id: receipt.id,
-      type: "RECEIPT",
-      number:
-        receipt.receipt_number ??
-        receipt.number ??
-        receipt.id.slice(0, 8).toUpperCase(),
-      tenantName: tenantNameFromSchedule(payment?.schedule_id),
-      amount: Number(receipt.amount ?? 0),
-      date:
-        receipt.issued_at ??
-        receipt.created_at ??
-        null,
-      pdfHref: `/api/receipts/${receipt.id}/pdf`,
-    };
-  });
+          return {
+            id: receipt.id,
+            type: "RECEIPT",
+            number:
+              receipt.receipt_number ??
+              receipt.number ??
+              receipt.id
+                .slice(0, 8)
+                .toUpperCase(),
+            tenantName:
+              tenantNameFromSchedule(
+                payment?.rent_schedule_id
+              ),
+            amount: Number(
+              receipt.amount ?? 0
+            ),
+            date:
+              receipt.issued_at ??
+              receipt.created_at ??
+              null,
+            pdfHref:
+              `/api/receipts/${receipt.id}/pdf`,
+          };
+        }
+      );
 
-  const quittanceRows: DocumentRow[] = quittances.map((quittance) => ({
-    id: quittance.id,
-    type: "QUITTANCE",
-    number:
-      quittance.quittance_number ??
-      quittance.number ??
-      quittance.id.slice(0, 8).toUpperCase(),
-    tenantName: tenantNameFromSchedule(quittance.schedule_id),
-    amount: Number(quittance.amount ?? 0),
-    date:
-      quittance.issued_at ??
-      quittance.created_at ??
-      null,
-    pdfHref: `/api/quittances/${quittance.id}/pdf`,
-  }));
+  const quittanceRows:
+    GeneratedDocumentRow[] =
+      quittances.map(
+        (quittance) => ({
+          id: quittance.id,
+          type: "QUITTANCE",
+          number:
+            quittance.quittance_number ??
+            quittance.number ??
+            quittance.id
+              .slice(0, 8)
+              .toUpperCase(),
+          tenantName:
+            tenantNameFromSchedule(
+              quittance.rent_schedule_id
+            ),
+          amount: Number(
+            quittance.amount_due ?? 0
+          ),
+          date:
+            quittance.issued_at ??
+            quittance.created_at ??
+            null,
+          pdfHref:
+            `/api/quittances/${quittance.id}/pdf`,
+        })
+      );
 
-  const documents = [...receiptRows, ...quittanceRows].sort((a, b) => {
-    const aTime = a.date ? new Date(a.date).getTime() : 0;
-    const bTime = b.date ? new Date(b.date).getTime() : 0;
+  const generatedDocuments = [
+    ...receiptRows,
+    ...quittanceRows,
+  ].sort(
+    (a, b) => {
+      const aTime = a.date
+        ? new Date(
+            a.date
+          ).getTime()
+        : 0;
 
-    return bTime - aTime;
-  });
+      const bTime = b.date
+        ? new Date(
+            b.date
+          ).getTime()
+        : 0;
 
-  const totalReceipts = receiptRows.length;
-  const totalQuittances = quittanceRows.length;
-  const totalDocumentAmount = documents.reduce(
-    (sum, document) => sum + document.amount,
-    0
+      return bTime - aTime;
+    }
   );
+
+  const totalReceipts =
+    receiptRows.length;
+
+  const totalQuittances =
+    quittanceRows.length;
+
+  const totalDocumentAmount =
+    generatedDocuments.reduce(
+      (sum, document) =>
+        sum + document.amount,
+      0
+    );
 
   return (
     <div className="h-screen overflow-hidden bg-[#F8FAFC]">
@@ -265,11 +541,11 @@ export default async function DocumentsPage() {
             <section>
               <div className="mb-4">
                 <h2 className="text-[20px] font-extrabold text-slate-900">
-                  Documents locatifs
+                  Bibliothèque documentaire
                 </h2>
 
                 <p className="mt-1 text-[13px] text-slate-500">
-                  Retrouvez les reçus de paiement et quittances générés par Alteract.
+                  Retrouvez les documents partagés et les justificatifs générés par Alteract.
                 </p>
               </div>
 
@@ -277,13 +553,14 @@ export default async function DocumentsPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <p className="text-[13px] font-semibold text-slate-500">
-                      Documents
+                      Fichiers partagés
                     </p>
-                    <FileText className="h-5 w-5 text-red-500" />
+
+                    <FolderOpen className="h-5 w-5 text-red-500" />
                   </div>
 
                   <p className="mt-4 text-[30px] font-extrabold text-slate-900">
-                    {documents.length}
+                    {sharedRows.length}
                   </p>
                 </div>
 
@@ -292,6 +569,7 @@ export default async function DocumentsPage() {
                     <p className="text-[13px] font-semibold text-slate-500">
                       Reçus
                     </p>
+
                     <ReceiptText className="h-5 w-5 text-emerald-500" />
                   </div>
 
@@ -305,6 +583,7 @@ export default async function DocumentsPage() {
                     <p className="text-[13px] font-semibold text-slate-500">
                       Quittances
                     </p>
+
                     <WalletCards className="h-5 w-5 text-slate-600" />
                   </div>
 
@@ -318,11 +597,14 @@ export default async function DocumentsPage() {
                     <p className="text-[13px] font-semibold text-slate-500">
                       Montants documentés
                     </p>
+
                     <WalletCards className="h-5 w-5 text-red-500" />
                   </div>
 
                   <p className="mt-4 text-[22px] font-extrabold text-slate-900">
-                    {formatXof(totalDocumentAmount)}
+                    {formatXof(
+                      totalDocumentAmount
+                    )}
                   </p>
                 </div>
               </div>
@@ -332,13 +614,153 @@ export default async function DocumentsPage() {
               <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-[18px] font-extrabold text-slate-900">
-                    Bibliothèque documentaire
+                    Fichiers partagés
                   </h2>
 
                   <p className="mt-1 text-[12px] text-slate-500">
-                    {documents.length} document
-                    {documents.length > 1 ? "s" : ""} disponible
-                    {documents.length > 1 ? "s" : ""}
+                    {sharedRows.length} fichier
+                    {sharedRows.length > 1
+                      ? "s"
+                      : ""}{" "}
+                    accessible
+                    {sharedRows.length > 1
+                      ? "s"
+                      : ""}
+                  </p>
+                </div>
+
+                {canManageDocuments && (
+                  <div className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-600">
+                    <ShieldCheck className="h-4 w-4" />
+                    Upload gestionnaire à l’étape suivante
+                  </div>
+                )}
+              </div>
+
+              {sharedRows.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead className="bg-slate-50">
+                      <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">
+                          Document
+                        </th>
+                        <th className="px-5 py-3">
+                          Type
+                        </th>
+                        <th className="px-5 py-3">
+                          Date
+                        </th>
+                        <th className="px-5 py-3">
+                          Taille
+                        </th>
+                        <th className="px-5 py-3 text-right">
+                          Fichier
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-100">
+                      {sharedRows.map(
+                        (document) => (
+                          <tr
+                            key={document.id}
+                            className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
+                          >
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
+                                  <FileText className="h-5 w-5 text-red-500" />
+                                </div>
+
+                                <div>
+                                  <p className="font-bold text-slate-900">
+                                    {document.title}
+                                  </p>
+
+                                  <p className="mt-1 text-[11px] text-slate-400">
+                                    Document privé sécurisé
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4 font-semibold text-slate-700">
+                              {formatDocumentType(
+                                document.documentType
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              {formatDate(
+                                document.createdAt
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              {formatFileSize(
+                                document.fileSize
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 text-right">
+                              {document.signedUrl ? (
+                                <Link
+                                  href={
+                                    document.signedUrl
+                                  }
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  Ouvrir
+                                </Link>
+                              ) : (
+                                <span className="text-[12px] text-slate-400">
+                                  Indisponible
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
+                    <FolderOpen className="h-6 w-6 text-red-500" />
+                  </div>
+
+                  <h3 className="mt-4 text-[16px] font-bold text-slate-900">
+                    Aucun fichier partagé
+                  </h3>
+
+                  <p className="mt-1 max-w-md text-[13px] text-slate-500">
+                    Les documents auxquels votre compte a accès apparaîtront ici.
+                  </p>
+                </div>
+              )}
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-[18px] font-extrabold text-slate-900">
+                    Justificatifs générés
+                  </h2>
+
+                  <p className="mt-1 text-[12px] text-slate-500">
+                    {generatedDocuments.length} document
+                    {generatedDocuments.length > 1
+                      ? "s"
+                      : ""}{" "}
+                    disponible
+                    {generatedDocuments.length > 1
+                      ? "s"
+                      : ""}
                   </p>
                 </div>
 
@@ -353,102 +775,126 @@ export default async function DocumentsPage() {
                 </div>
               </div>
 
-              {documents.length > 0 ? (
+              {generatedDocuments.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead className="bg-slate-50">
                       <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3">Document</th>
-                        <th className="px-5 py-3">Numéro</th>
-                        <th className="px-5 py-3">Locataire</th>
-                        <th className="px-5 py-3">Date</th>
-                        <th className="px-5 py-3">Montant</th>
-                        <th className="px-5 py-3 text-right">PDF</th>
+                        <th className="px-5 py-3">
+                          Document
+                        </th>
+                        <th className="px-5 py-3">
+                          Numéro
+                        </th>
+                        <th className="px-5 py-3">
+                          Locataire
+                        </th>
+                        <th className="px-5 py-3">
+                          Date
+                        </th>
+                        <th className="px-5 py-3">
+                          Montant
+                        </th>
+                        <th className="px-5 py-3 text-right">
+                          PDF
+                        </th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {documents.map((document) => (
-                        <tr
-                          key={`${document.type}-${document.id}`}
-                          className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
-                        >
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={[
-                                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                                  document.type === "RECEIPT"
-                                    ? "bg-emerald-50"
-                                    : "bg-red-50",
-                                ].join(" ")}
+                      {generatedDocuments.map(
+                        (document) => (
+                          <tr
+                            key={`${document.type}-${document.id}`}
+                            className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
+                          >
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={[
+                                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                                    document.type ===
+                                    "RECEIPT"
+                                      ? "bg-emerald-50"
+                                      : "bg-red-50",
+                                  ].join(" ")}
+                                >
+                                  {document.type ===
+                                  "RECEIPT" ? (
+                                    <ReceiptText className="h-5 w-5 text-emerald-600" />
+                                  ) : (
+                                    <FileText className="h-5 w-5 text-red-500" />
+                                  )}
+                                </div>
+
+                                <div>
+                                  <p className="font-bold text-slate-900">
+                                    {document.type ===
+                                    "RECEIPT"
+                                      ? "Reçu de paiement"
+                                      : "Quittance de loyer"}
+                                  </p>
+
+                                  <p className="mt-1 text-[11px] text-slate-400">
+                                    Document sécurisé
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4 font-semibold text-slate-800">
+                              {document.number}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-2">
+                                <UserRound className="h-4 w-4 text-slate-400" />
+
+                                <span className="font-semibold text-slate-800">
+                                  {document.tenantName}
+                                </span>
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4 font-medium text-slate-700">
+                              {formatDate(
+                                document.date
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 font-bold text-slate-900">
+                              {formatXof(
+                                document.amount
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 text-right">
+                              <Link
+                                href={
+                                  document.pdfHref
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                               >
-                                {document.type === "RECEIPT" ? (
-                                  <ReceiptText className="h-5 w-5 text-emerald-600" />
-                                ) : (
-                                  <FileText className="h-5 w-5 text-red-500" />
-                                )}
-                              </div>
-
-                              <div>
-                                <p className="font-bold text-slate-900">
-                                  {document.type === "RECEIPT"
-                                    ? "Reçu de paiement"
-                                    : "Quittance de loyer"}
-                                </p>
-
-                                <p className="mt-1 text-[11px] text-slate-400">
-                                  Document sécurisé
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-4 font-semibold text-slate-800">
-                            {document.number}
-                          </td>
-
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2">
-                              <UserRound className="h-4 w-4 text-slate-400" />
-                              <span className="font-semibold text-slate-800">
-                                {document.tenantName}
-                              </span>
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-4 font-medium text-slate-700">
-                            {formatDate(document.date)}
-                          </td>
-
-                          <td className="px-5 py-4 font-bold text-slate-900">
-                            {formatXof(document.amount)}
-                          </td>
-
-                          <td className="px-5 py-4 text-right">
-                            <Link
-                              href={document.pdfHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-                            >
-                              <Download className="h-4 w-4" />
-                              Ouvrir
-                            </Link>
-                          </td>
-                        </tr>
-                      ))}
+                                <Download className="h-4 w-4" />
+                                Ouvrir
+                              </Link>
+                            </td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div className="flex min-h-[320px] flex-col items-center justify-center px-5 text-center">
+                <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
                     <FileText className="h-6 w-6 text-red-500" />
                   </div>
 
                   <h3 className="mt-4 text-[16px] font-bold text-slate-900">
-                    Aucun document
+                    Aucun justificatif
                   </h3>
 
                   <p className="mt-1 max-w-md text-[13px] text-slate-500">
