@@ -41,16 +41,22 @@ function formatPaymentMethod(method: string | null) {
   switch (method) {
     case "CASH":
       return "Espèces";
+
     case "BANK_TRANSFER":
       return "Virement";
+
     case "MOBILE_MONEY":
       return "Mobile Money";
+
     case "CARD":
       return "Carte";
+
     case "CHEQUE":
       return "Chèque";
+
     case "OTHER":
       return "Autre";
+
     default:
       return "—";
   }
@@ -101,14 +107,19 @@ export default async function PaymentsPage() {
   const { data: payments } = await supabase
     .from("payments")
     .select(
-      "id, schedule_id, amount, currency, payment_date, method, status, reference, created_at"
+      "id, rent_schedule_id, amount, currency, payment_date, payment_method, status, reference, created_at"
     )
     .order("payment_date", { ascending: false });
 
   const paymentRows = payments ?? [];
   const paymentIds = paymentRows.map((payment) => payment.id);
+
   const scheduleIds = Array.from(
-    new Set(paymentRows.map((payment) => payment.schedule_id))
+    new Set(
+      paymentRows.map(
+        (payment) => payment.rent_schedule_id
+      )
+    )
   );
 
   const [refundsResult, schedulesResult] = await Promise.all([
@@ -122,7 +133,9 @@ export default async function PaymentsPage() {
     scheduleIds.length > 0
       ? supabase
           .from("rent_schedules")
-          .select("id, lease_id, period_start, period_end, due_date")
+          .select(
+            "id, lease_id, period_start, period_end, due_date"
+          )
           .in("id", scheduleIds)
       : Promise.resolve({ data: [] }),
   ]);
@@ -153,9 +166,11 @@ export default async function PaymentsPage() {
       : { data: [] };
 
   const leaseRows = leases ?? [];
+
   const tenantIds = Array.from(
     new Set(leaseRows.map((lease) => lease.tenant_id))
   );
+
   const unitIds = Array.from(
     new Set(leaseRows.map((lease) => lease.unit_id))
   );
@@ -219,16 +234,22 @@ export default async function PaymentsPage() {
   );
 
   const rows = paymentRows.map((payment) => {
-    const schedule = scheduleMap.get(payment.schedule_id);
+    const schedule = scheduleMap.get(
+      payment.rent_schedule_id
+    );
+
     const lease = schedule
       ? leaseMap.get(schedule.lease_id)
       : undefined;
+
     const tenant = lease
       ? tenantMap.get(lease.tenant_id)
       : undefined;
+
     const unit = lease
       ? unitMap.get(lease.unit_id)
       : undefined;
+
     const property = unit
       ? propertyMap.get(unit.property_id)
       : undefined;
@@ -237,13 +258,20 @@ export default async function PaymentsPage() {
       refundedByPaymentId.get(payment.id) ?? 0;
 
     const grossAmount = Number(payment.amount ?? 0);
-    const netAmount = Math.max(grossAmount - refundedAmount, 0);
+    const netAmount = Math.max(
+      grossAmount - refundedAmount,
+      0
+    );
 
     return {
       id: payment.id,
-      reference: payment.reference || payment.id.slice(0, 8).toUpperCase(),
+      reference:
+        payment.reference ||
+        payment.id.slice(0, 8).toUpperCase(),
       paymentDate: payment.payment_date,
-      method: formatPaymentMethod(payment.method),
+      method: formatPaymentMethod(
+        payment.payment_method
+      ),
       status: payment.status,
       grossAmount,
       refundedAmount,
@@ -255,7 +283,8 @@ export default async function PaymentsPage() {
           )
         : "Locataire non renseigné",
       unitName: unit?.name ?? "Unité non renseignée",
-      propertyName: property?.name ?? "Bien non renseigné",
+      propertyName:
+        property?.name ?? "Bien non renseigné",
       propertyLocation:
         property?.address ||
         property?.city ||
@@ -274,12 +303,14 @@ export default async function PaymentsPage() {
   ).length;
 
   const completedGross = completedPayments.reduce(
-    (sum, payment) => sum + Number(payment.amount ?? 0),
+    (sum, payment) =>
+      sum + Number(payment.amount ?? 0),
     0
   );
 
   const totalRefunded = refunds.reduce(
-    (sum, refund) => sum + Number(refund.amount ?? 0),
+    (sum, refund) =>
+      sum + Number(refund.amount ?? 0),
     0
   );
 
@@ -432,7 +463,9 @@ export default async function PaymentsPage() {
                         <th className="px-5 py-3">Date</th>
                         <th className="px-5 py-3">Mode</th>
                         <th className="px-5 py-3">Montant net</th>
-                        <th className="px-5 py-3 text-right">Statut</th>
+                        <th className="px-5 py-3 text-right">
+                          Statut
+                        </th>
                       </tr>
                     </thead>
 
@@ -455,8 +488,13 @@ export default async function PaymentsPage() {
                                 payment.periodEnd && (
                                   <p className="mt-1 text-[11px] text-slate-400">
                                     Échéance du{" "}
-                                    {formatDate(payment.periodStart)} au{" "}
-                                    {formatDate(payment.periodEnd)}
+                                    {formatDate(
+                                      payment.periodStart
+                                    )}{" "}
+                                    au{" "}
+                                    {formatDate(
+                                      payment.periodEnd
+                                    )}
                                   </p>
                                 )}
                             </td>
@@ -481,7 +519,9 @@ export default async function PaymentsPage() {
 
                                   <div className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-500">
                                     <Home className="h-3.5 w-3.5" />
-                                    <span>{payment.unitName}</span>
+                                    <span>
+                                      {payment.unitName}
+                                    </span>
                                   </div>
 
                                   <p className="mt-1 max-w-[220px] truncate text-[11px] text-slate-400">
@@ -492,7 +532,9 @@ export default async function PaymentsPage() {
                             </td>
 
                             <td className="px-5 py-4 font-medium text-slate-700">
-                              {formatDate(payment.paymentDate)}
+                              {formatDate(
+                                payment.paymentDate
+                              )}
                             </td>
 
                             <td className="px-5 py-4">
@@ -501,13 +543,17 @@ export default async function PaymentsPage() {
 
                             <td className="px-5 py-4">
                               <p className="font-bold text-slate-900">
-                                {formatXof(payment.netAmount)}
+                                {formatXof(
+                                  payment.netAmount
+                                )}
                               </p>
 
                               {payment.refundedAmount > 0 && (
                                 <p className="mt-1 text-[11px] text-red-500">
                                   Remboursé :{" "}
-                                  {formatXof(payment.refundedAmount)}
+                                  {formatXof(
+                                    payment.refundedAmount
+                                  )}
                                 </p>
                               )}
                             </td>
