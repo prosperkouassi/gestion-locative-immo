@@ -1,8 +1,11 @@
+import Link from "next/link";
 import {
   Bell,
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Home,
   Search,
@@ -12,6 +15,8 @@ import {
 
 import AppSidebar from "@/components/AppSidebar";
 import { createClient } from "@/lib/supabase/server";
+
+const PAGE_SIZE = 10;
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -95,7 +100,18 @@ function getScheduleStatus(status: string) {
   }
 }
 
-export default async function SchedulesPage() {
+type SchedulesPageProps = {
+  searchParams: Promise<{
+    page?: string;
+  }>;
+};
+
+export default async function SchedulesPage({
+  searchParams,
+}: SchedulesPageProps) {
+  const params = await searchParams;
+  const requestedPage = Number.parseInt(params.page ?? "1", 10);
+
   const supabase = await createClient();
 
   const { data: schedules } = await supabase
@@ -236,6 +252,30 @@ export default async function SchedulesPage() {
       0
     );
 
+  const totalPages = Math.max(
+    1,
+    Math.ceil(rows.length / PAGE_SIZE)
+  );
+
+  const normalizedRequestedPage = Number.isFinite(requestedPage)
+    ? requestedPage
+    : 1;
+
+  const currentPage = Math.min(
+    Math.max(normalizedRequestedPage, 1),
+    totalPages
+  );
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = startIndex + PAGE_SIZE;
+
+  const paginatedRows = rows.slice(startIndex, endIndex);
+
+  const firstVisibleItem =
+    rows.length === 0 ? 0 : startIndex + 1;
+
+  const lastVisibleItem = Math.min(endIndex, rows.length);
+
   return (
     <div className="h-screen overflow-hidden bg-[#F8FAFC]">
       <div className="flex h-screen">
@@ -364,95 +404,141 @@ export default async function SchedulesPage() {
               </div>
 
               {rows.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3">Locataire</th>
-                        <th className="px-5 py-3">Logement</th>
-                        <th className="px-5 py-3">Période</th>
-                        <th className="px-5 py-3">Échéance</th>
-                        <th className="px-5 py-3">Montant</th>
-                        <th className="px-5 py-3 text-right">Statut</th>
-                      </tr>
-                    </thead>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full">
+                      <thead className="bg-slate-50">
+                        <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-5 py-3">Locataire</th>
+                          <th className="px-5 py-3">Logement</th>
+                          <th className="px-5 py-3">Période</th>
+                          <th className="px-5 py-3">Échéance</th>
+                          <th className="px-5 py-3">Montant</th>
+                          <th className="px-5 py-3 text-right">Statut</th>
+                        </tr>
+                      </thead>
 
-                    <tbody className="divide-y divide-slate-100">
-                      {rows.map((schedule) => {
-                        const status =
-                          getScheduleStatus(schedule.status);
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedRows.map((schedule) => {
+                          const status =
+                            getScheduleStatus(schedule.status);
 
-                        return (
-                          <tr
-                            key={schedule.id}
-                            className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
-                          >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-2">
-                                <UserRound className="h-4 w-4 text-slate-400" />
-                                <span className="font-bold text-slate-900">
-                                  {schedule.tenantName}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="px-5 py-4">
-                              <div className="flex items-start gap-2">
-                                <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-
-                                <div>
-                                  <p className="font-semibold text-slate-800">
-                                    {schedule.propertyName}
-                                  </p>
-
-                                  <div className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-500">
-                                    <Home className="h-3.5 w-3.5" />
-                                    <span>{schedule.unitName}</span>
-                                  </div>
-
-                                  <p className="mt-1 max-w-[220px] truncate text-[11px] text-slate-400">
-                                    {schedule.propertyLocation}
-                                  </p>
+                          return (
+                            <tr
+                              key={schedule.id}
+                              className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
+                            >
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-2">
+                                  <UserRound className="h-4 w-4 text-slate-400" />
+                                  <span className="font-bold text-slate-900">
+                                    {schedule.tenantName}
+                                  </span>
                                 </div>
-                              </div>
-                            </td>
+                              </td>
 
-                            <td className="px-5 py-4 font-medium text-slate-700">
-                              {formatPeriod(
-                                schedule.periodStart,
-                                schedule.periodEnd
-                              )}
-                            </td>
+                              <td className="px-5 py-4">
+                                <div className="flex items-start gap-2">
+                                  <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
 
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-2">
-                                <CalendarDays className="h-4 w-4 text-slate-400" />
-                                <span className="font-semibold text-slate-700">
-                                  {formatDate(schedule.dueDate)}
+                                  <div>
+                                    <p className="font-semibold text-slate-800">
+                                      {schedule.propertyName}
+                                    </p>
+
+                                    <div className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-500">
+                                      <Home className="h-3.5 w-3.5" />
+                                      <span>{schedule.unitName}</span>
+                                    </div>
+
+                                    <p className="mt-1 max-w-[220px] truncate text-[11px] text-slate-400">
+                                      {schedule.propertyLocation}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="px-5 py-4 font-medium text-slate-700">
+                                {formatPeriod(
+                                  schedule.periodStart,
+                                  schedule.periodEnd
+                                )}
+                              </td>
+
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-2">
+                                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                                  <span className="font-semibold text-slate-700">
+                                    {formatDate(schedule.dueDate)}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td className="px-5 py-4 font-bold text-slate-900">
+                                {formatXof(schedule.amountDue)}
+                              </td>
+
+                              <td className="px-5 py-4 text-right">
+                                <span
+                                  className={[
+                                    "inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-semibold ring-1 ring-inset",
+                                    status.className,
+                                  ].join(" ")}
+                                >
+                                  {status.label}
                                 </span>
-                              </div>
-                            </td>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
 
-                            <td className="px-5 py-4 font-bold text-slate-900">
-                              {formatXof(schedule.amountDue)}
-                            </td>
+                  <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[12px] text-slate-500">
+                      Affichage de {firstVisibleItem} à {lastVisibleItem} sur{" "}
+                      {rows.length} échéance
+                      {rows.length > 1 ? "s" : ""}
+                    </p>
 
-                            <td className="px-5 py-4 text-right">
-                              <span
-                                className={[
-                                  "inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-semibold ring-1 ring-inset",
-                                  status.className,
-                                ].join(" ")}
-                              >
-                                {status.label}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                    <div className="flex items-center gap-2">
+                      {currentPage > 1 ? (
+                        <Link
+                          href={`/schedules?page=${currentPage - 1}`}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Précédent
+                        </Link>
+                      ) : (
+                        <span className="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[12px] font-semibold text-slate-400">
+                          <ChevronLeft className="h-4 w-4" />
+                          Précédent
+                        </span>
+                      )}
+
+                      <span className="min-w-[92px] text-center text-[12px] font-semibold text-slate-600">
+                        Page {currentPage} / {totalPages}
+                      </span>
+
+                      {currentPage < totalPages ? (
+                        <Link
+                          href={`/schedules?page=${currentPage + 1}`}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Suivant
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      ) : (
+                        <span className="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[12px] font-semibold text-slate-400">
+                          Suivant
+                          <ChevronRight className="h-4 w-4" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </>
               ) : (
                 <div className="flex min-h-[320px] flex-col items-center justify-center px-5 text-center">
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
