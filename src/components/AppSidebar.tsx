@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -12,6 +12,7 @@ import {
   FileText,
   Home,
   LayoutDashboard,
+  LogOut,
   ReceiptText,
   Settings,
   UserRound,
@@ -141,9 +142,12 @@ function formatRole(role: OrganizationRole | null) {
 
 export default function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
   const [role, setRole] = useState<OrganizationRole | null>(null);
   const [organizationName, setOrganizationName] =
     useState("Chargement...");
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -193,6 +197,39 @@ export default function AppSidebar() {
       isMounted = false;
     };
   }, []);
+
+  async function handleSignOut() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      const supabase = createClient();
+
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("Erreur de déconnexion :", error);
+        setIsSigningOut(false);
+        return;
+      }
+
+      setRole(null);
+      setOrganizationName("Chargement...");
+
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      console.error(
+        "Erreur inattendue pendant la déconnexion :",
+        error
+      );
+
+      setIsSigningOut(false);
+    }
+  }
 
   const visibleNavItems = useMemo(() => {
     if (!role) {
@@ -274,16 +311,36 @@ export default function AppSidebar() {
 
       <div className="mt-auto">
         {role ? (
-          <Link
-            href="/settings"
-            className={[
-              baseClass,
-              settingsActive ? activeClass : inactiveClass,
-            ].join(" ")}
-          >
-            <Settings className="h-[17px] w-[17px]" />
-            <span>Paramètres</span>
-          </Link>
+          <>
+            <Link
+              href="/settings"
+              className={[
+                baseClass,
+                settingsActive ? activeClass : inactiveClass,
+              ].join(" ")}
+            >
+              <Settings className="h-[17px] w-[17px]" />
+              <span>Paramètres</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+              className={[
+                baseClass,
+                "mt-1 text-white/75 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50",
+              ].join(" ")}
+            >
+              <LogOut className="h-[17px] w-[17px]" />
+
+              <span>
+                {isSigningOut
+                  ? "Déconnexion..."
+                  : "Déconnexion"}
+              </span>
+            </button>
+          </>
         ) : null}
 
         <div className="mt-3 flex items-center gap-3 border-t border-white/10 px-2 pt-4">
