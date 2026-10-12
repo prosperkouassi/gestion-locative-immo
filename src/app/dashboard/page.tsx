@@ -654,6 +654,8 @@ export default async function DashboardPage() {
 
       maintenanceResult,
 
+      maintenanceOpenCountResult,
+
       documentsResult,
 
       receiptsResult,
@@ -729,6 +731,11 @@ export default async function DashboardPage() {
         .order("reported_at", { ascending: false })
 
         .limit(4),
+
+      supabase
+        .from("maintenance_requests")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["OPEN", "IN_PROGRESS", "PLANNED"]),
 
 
 
@@ -868,6 +875,8 @@ export default async function DashboardPage() {
 
         return (
 
+          lease.status === "ACTIVE" &&
+
           lease.start_date <= today &&
 
           (!effectiveEnd || effectiveEnd >= today)
@@ -878,7 +887,17 @@ export default async function DashboardPage() {
 
       tenantLeases.find(
 
-        (lease) => lease.start_date > today
+        (lease) =>
+
+          lease.status === "ACTIVE" &&
+
+          lease.start_date > today
+
+      ) ??
+
+      tenantLeases.find(
+
+        (lease) => lease.status === "ACTIVE"
 
       ) ??
 
@@ -948,19 +967,7 @@ export default async function DashboardPage() {
 
     const openMaintenanceCount =
 
-      tenantMaintenance.filter(
-
-        (request) =>
-
-          ![
-
-            "COMPLETED",
-
-            "CANCELLED",
-
-          ].includes(request.status)
-
-      ).length;
+      maintenanceOpenCountResult.count ?? 0;
 
 
 
@@ -998,7 +1005,11 @@ export default async function DashboardPage() {
 
             schedule.due_date >= today &&
 
-            schedule.status !== "CANCELLED"
+            !["PAID", "CANCELLED"].includes(
+
+              schedule.status
+
+            )
 
         )
 
