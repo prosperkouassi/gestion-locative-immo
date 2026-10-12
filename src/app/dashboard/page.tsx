@@ -4921,31 +4921,13 @@ export default async function DashboardPage() {
 
 
 
-              <button
-
-
-
-                type="button"
-
-
-
+              <a
+                href="/properties"
                 className="flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-[#ff5d4d] px-4 text-base font-semibold text-white shadow-[0_8px_22px_rgba(239,68,68,0.23)]"
-
-
-
               >
-
-
-
                 <span className="text-base leading-none">+</span>
-
-
-
                 Ajouter
-
-
-
-              </button>
+              </a>
 
 
 
@@ -5637,27 +5619,12 @@ export default async function DashboardPage() {
 
 
 
-                <button
-
-
-
-                  type="button"
-
-
-
-                  className="w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500"
-
-
-
+                <a
+                  href="/payments"
+                  className="block w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500 transition hover:bg-red-50"
                 >
-
-
-
                   Voir tous les paiements
-
-
-
-                </button>
+                </a>
 
 
 
@@ -5885,27 +5852,12 @@ export default async function DashboardPage() {
 
 
 
-                <button
-
-
-
-                  type="button"
-
-
-
-                  className="w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500"
-
-
-
+                <a
+                  href="/maintenance"
+                  className="block w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500 transition hover:bg-red-50"
                 >
-
-
-
                   Voir toutes les interventions
-
-
-
-                </button>
+                </a>
 
 
 
@@ -5949,27 +5901,12 @@ export default async function DashboardPage() {
 
 
 
-                  <button
-
-
-
-                    type="button"
-
-
-
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-[14px] font-medium text-slate-600"
-
-
-
+                  <a
+                    href="/properties"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-[14px] font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                   >
-
-
-
                     Voir tous les biens
-
-
-
-                  </button>
+                  </a>
 
 
 
@@ -6357,27 +6294,12 @@ export default async function DashboardPage() {
 
 
 
-                  <button
-
-
-
-                    type="button"
-
-
-
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-[14px] font-medium text-slate-600"
-
-
-
+                  <a
+                    href="/tenants"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-[14px] font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                   >
-
-
-
                     Voir tous
-
-
-
-                  </button>
+                  </a>
 
 
 
@@ -6525,27 +6447,12 @@ export default async function DashboardPage() {
 
 
 
-                <button
-
-
-
-                  type="button"
-
-
-
-                  className="w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500"
-
-
-
+                <a
+                  href="/tenants"
+                  className="block w-full border-t border-slate-100 px-4 py-3 text-left text-[14px] font-semibold text-red-500 transition hover:bg-red-50"
                 >
-
-
-
                   Voir tous les locataires
-
-
-
-                </button>
+                </a>
 
 
 
