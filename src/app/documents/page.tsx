@@ -2,17 +2,23 @@ import Link from "next/link";
 import {
   Bell,
   Download,
+  Eye,
   FileText,
   FolderOpen,
   ReceiptText,
   Search,
-  ShieldCheck,
   UserRound,
   WalletCards,
 } from "lucide-react";
 
 import AppSidebar from "@/components/AppSidebar";
 import { requireActiveMembership } from "@/lib/auth/access";
+
+import DeleteDocumentButton from "./DeleteDocumentButton";
+import DocumentUploadButton, {
+  type DocumentEntityOption,
+  type DocumentUnitOption,
+} from "./DocumentUploadButton";
 
 function formatXof(value: number) {
   return `${new Intl.NumberFormat("fr-FR", {
@@ -24,9 +30,7 @@ function formatDate(value: string | null | undefined) {
   if (!value) return "—";
 
   const normalized =
-    value.length === 10
-      ? `${value}T00:00:00Z`
-      : value;
+    value.length === 10 ? `${value}T00:00:00Z` : value;
 
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
@@ -38,55 +42,24 @@ function formatDate(value: string | null | undefined) {
 
 function formatFileSize(value: number | null) {
   if (value === null || value < 0) return "—";
-
-  if (value < 1024) {
-    return `${value} o`;
-  }
-
-  if (value < 1024 * 1024) {
-    return `${Math.round(value / 1024)} Ko`;
-  }
-
+  if (value < 1024) return `${value} o`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} Ko`;
   return `${(value / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-function formatTenantName(
-  firstName: string | null | undefined,
-  lastName: string | null | undefined
-) {
-  return (
-    `${firstName ?? ""} ${lastName ?? ""}`.trim() ||
-    "Locataire"
-  );
-}
-
 function formatDocumentType(type: string) {
-  switch (type) {
-    case "LEASE":
-      return "Bail";
+  const labels: Record<string, string> = {
+    LEASE: "Bail",
+    RECEIPT: "Reçu",
+    QUITTANCE: "Quittance",
+    INVOICE: "Facture",
+    IDENTITY: "Identité",
+    PROPERTY: "Bien",
+    MAINTENANCE: "Maintenance",
+    OTHER: "Autre",
+  };
 
-    case "RECEIPT":
-      return "Reçu";
-
-    case "QUITTANCE":
-      return "Quittance";
-
-    case "INVOICE":
-      return "Facture";
-
-    case "IDENTITY":
-      return "Identité";
-
-    case "PROPERTY":
-      return "Bien";
-
-    case "MAINTENANCE":
-      return "Maintenance";
-
-    case "OTHER":
-    default:
-      return "Autre";
-  }
+  return labels[type] ?? "Autre";
 }
 
 type GeneratedDocumentRow = {
@@ -99,408 +72,330 @@ type GeneratedDocumentRow = {
   pdfHref: string;
 };
 
-type SharedDocumentRow = {
-  id: string;
-  title: string;
-  documentType: string;
-  storagePath: string;
-  mimeType: string | null;
-  fileSize: number | null;
-  createdAt: string;
-  ownerVisible: boolean;
-  tenantVisible: boolean;
-  signedUrl: string | null;
+type DocumentsPageProps = {
+  searchParams: Promise<{ q?: string }>;
 };
 
-export default async function DocumentsPage() {
-  const { supabase, membership } =
-    await requireActiveMembership();
+export default async function DocumentsPage({
+  searchParams,
+}: DocumentsPageProps) {
+  const params = await searchParams;
+  const query = params.q?.trim() ?? "";
+  const normalizedQuery = query.toLocaleLowerCase("fr");
 
-  const canManageDocuments = [
-    "ADMIN_AGENCY",
-    "MANAGER",
-  ].includes(membership.role);
+  const { supabase, membership } = await requireActiveMembership();
+
+  const canManageDocuments = ["ADMIN_AGENCY", "MANAGER"].includes(
+    membership.role
+  );
 
   const [
     sharedDocumentsResult,
     receiptsResult,
     quittancesResult,
+    ownersResult,
+    tenantsResult,
+    propertiesResult,
+    unitsResult,
+    leasesResult,
   ] = await Promise.all([
     supabase
       .from("documents")
       .select(
-        "id, title, document_type, storage_path, mime_type, file_size, is_visible_to_owner, is_visible_to_tenant, created_at"
+        "id, owner_id, tenant_id, property_id, unit_id, lease_id, title, document_type, storage_path, mime_type, file_size, is_visible_to_owner, is_visible_to_tenant, created_at"
       )
-      .order("created_at", {
-        ascending: false,
-      }),
+      .eq("organization_id", membership.organization_id)
+      .order("created_at", { ascending: false }),
+
+    supabase.from("receipts").select("*").order("created_at", {
+      ascending: false,
+    }),
+
+    supabase.from("rent_quittances").select("*").order("created_at", {
+      ascending: false,
+    }),
 
     supabase
-      .from("receipts")
-      .select("*")
-      .order("created_at", {
-        ascending: false,
-      }),
+      .from("owners")
+      .select("id, first_name, last_name")
+      .eq("organization_id", membership.organization_id)
+      .order("last_name", { ascending: true }),
 
     supabase
-      .from("rent_quittances")
-      .select("*")
-      .order("created_at", {
-        ascending: false,
-      }),
+      .from("tenants")
+      .select("id, first_name, last_name")
+      .eq("organization_id", membership.organization_id)
+      .order("last_name", { ascending: true }),
+
+    supabase
+      .from("properties")
+      .select("id, name")
+      .eq("organization_id", membership.organization_id)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("units")
+      .select("id, property_id, name")
+      .eq("organization_id", membership.organization_id)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("leases")
+      .select("id, tenant_id, unit_id, status, start_date, end_date")
+      .eq("organization_id", membership.organization_id)
+      .order("start_date", { ascending: false }),
   ]);
 
-  const sharedDocuments =
-    sharedDocumentsResult.data ?? [];
+  const owners = ownersResult.data ?? [];
+  const tenants = tenantsResult.data ?? [];
+  const properties = propertiesResult.data ?? [];
+  const units = unitsResult.data ?? [];
+  const leases = leasesResult.data ?? [];
 
-  const receipts =
-    receiptsResult.data ?? [];
+  const ownerMap = new Map(owners.map((item) => [item.id, item]));
+  const tenantMap = new Map(tenants.map((item) => [item.id, item]));
+  const propertyMap = new Map(properties.map((item) => [item.id, item]));
+  const unitMap = new Map(units.map((item) => [item.id, item]));
 
-  const quittances =
-    quittancesResult.data ?? [];
+  const ownerOptions: DocumentEntityOption[] = owners.map((item) => ({
+    id: item.id,
+    label:
+      `${item.first_name ?? ""} ${item.last_name ?? ""}`.trim() ||
+      "Propriétaire",
+  }));
 
-  const sharedRows: SharedDocumentRow[] =
-    await Promise.all(
-      sharedDocuments.map(
-        async (document) => {
-          const { data: signedData } =
-            await supabase.storage
-              .from("documents")
-              .createSignedUrl(
-                document.storage_path,
-                60 * 5
-              );
+  const tenantOptions: DocumentEntityOption[] = tenants.map((item) => ({
+    id: item.id,
+    label:
+      `${item.first_name ?? ""} ${item.last_name ?? ""}`.trim() ||
+      "Locataire",
+  }));
 
-          return {
-            id: document.id,
-            title: document.title,
-            documentType:
-              document.document_type,
-            storagePath:
-              document.storage_path,
-            mimeType:
-              document.mime_type,
-            fileSize:
-              document.file_size === null
-                ? null
-                : Number(
-                    document.file_size
-                  ),
-            createdAt:
-              document.created_at,
-            ownerVisible:
-              document.is_visible_to_owner,
-            tenantVisible:
-              document.is_visible_to_tenant,
-            signedUrl:
-              signedData?.signedUrl ??
-              null,
-          };
-        }
+  const propertyOptions: DocumentEntityOption[] = properties.map((item) => ({
+    id: item.id,
+    label: item.name,
+  }));
+
+  const unitOptions: DocumentUnitOption[] = units.map((item) => ({
+    id: item.id,
+    propertyId: item.property_id,
+    label: item.name,
+  }));
+
+  const leaseOptions: DocumentEntityOption[] = leases.map((lease) => {
+    const tenant = tenantMap.get(lease.tenant_id);
+    const unit = unitMap.get(lease.unit_id);
+
+    const tenantName = tenant
+      ? `${tenant.first_name ?? ""} ${tenant.last_name ?? ""}`.trim()
+      : "Locataire";
+
+    return {
+      id: lease.id,
+      label: `${tenantName} — ${unit?.name ?? "Unité"} — ${lease.status}`,
+    };
+  });
+
+  const sharedDocuments = sharedDocumentsResult.data ?? [];
+
+  const sharedRows = await Promise.all(
+    sharedDocuments.map(async (document) => {
+      const { data: signedData } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(document.storage_path, 60 * 5);
+
+      const owner = document.owner_id
+        ? ownerMap.get(document.owner_id)
+        : undefined;
+      const tenant = document.tenant_id
+        ? tenantMap.get(document.tenant_id)
+        : undefined;
+      const property = document.property_id
+        ? propertyMap.get(document.property_id)
+        : undefined;
+      const unit = document.unit_id
+        ? unitMap.get(document.unit_id)
+        : undefined;
+
+      return {
+        id: document.id,
+        title: document.title,
+        documentType: document.document_type,
+        fileSize:
+          document.file_size === null ? null : Number(document.file_size),
+        createdAt: document.created_at,
+        ownerVisible: document.is_visible_to_owner,
+        tenantVisible: document.is_visible_to_tenant,
+        signedUrl: signedData?.signedUrl ?? null,
+        ownerName: owner
+          ? `${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim()
+          : null,
+        tenantName: tenant
+          ? `${tenant.first_name ?? ""} ${tenant.last_name ?? ""}`.trim()
+          : null,
+        propertyName: property?.name ?? null,
+        unitName: unit?.name ?? null,
+      };
+    })
+  );
+
+  const filteredSharedRows = query
+    ? sharedRows.filter((document) =>
+        [
+          document.title,
+          formatDocumentType(document.documentType),
+          document.ownerName,
+          document.tenantName,
+          document.propertyName,
+          document.unitName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("fr")
+          .includes(normalizedQuery)
       )
-    );
+    : sharedRows;
+
+  const receipts = receiptsResult.data ?? [];
+  const quittances = quittancesResult.data ?? [];
 
   const paymentIds = Array.from(
     new Set(
       receipts
-        .map(
-          (receipt) =>
-            receipt.payment_id
-        )
-        .filter(
-          (id): id is string =>
-            Boolean(id)
-        )
+        .map((receipt) => receipt.payment_id)
+        .filter((id): id is string => Boolean(id))
     )
   );
 
-  const quittanceScheduleIds =
-    Array.from(
-      new Set(
-        quittances
-          .map(
-            (quittance) =>
-              quittance.rent_schedule_id
-          )
-          .filter(
-            (id): id is string =>
-              Boolean(id)
-          )
-      )
-    );
+  const quittanceScheduleIds = Array.from(
+    new Set(
+      quittances
+        .map((quittance) => quittance.rent_schedule_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
 
   const { data: payments } =
     paymentIds.length > 0
       ? await supabase
           .from("payments")
-          .select(
-            "id, rent_schedule_id"
-          )
-          .in(
-            "id",
-            paymentIds
-          )
+          .select("id, rent_schedule_id")
+          .in("id", paymentIds)
       : { data: [] };
 
-  const receiptScheduleIds =
-    Array.from(
-      new Set(
-        (payments ?? [])
-          .map(
-            (payment) =>
-              payment.rent_schedule_id
-          )
-          .filter(
-            (id): id is string =>
-              Boolean(id)
-          )
-      )
-    );
+  const receiptScheduleIds = Array.from(
+    new Set(
+      (payments ?? [])
+        .map((payment) => payment.rent_schedule_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
 
-  const allScheduleIds =
-    Array.from(
-      new Set([
-        ...receiptScheduleIds,
-        ...quittanceScheduleIds,
-      ])
-    );
+  const allScheduleIds = Array.from(
+    new Set([...receiptScheduleIds, ...quittanceScheduleIds])
+  );
 
   const { data: schedules } =
     allScheduleIds.length > 0
       ? await supabase
           .from("rent_schedules")
           .select("id, lease_id")
-          .in(
-            "id",
-            allScheduleIds
-          )
+          .in("id", allScheduleIds)
       : { data: [] };
 
-  const leaseIds = Array.from(
+  const generatedLeaseIds = Array.from(
     new Set(
       (schedules ?? [])
-        .map(
-          (schedule) =>
-            schedule.lease_id
-        )
-        .filter(
-          (id): id is string =>
-            Boolean(id)
-        )
+        .map((schedule) => schedule.lease_id)
+        .filter((id): id is string => Boolean(id))
     )
   );
 
-  const { data: leases } =
-    leaseIds.length > 0
+  const { data: generatedLeases } =
+    generatedLeaseIds.length > 0
       ? await supabase
           .from("leases")
           .select("id, tenant_id")
-          .in(
-            "id",
-            leaseIds
-          )
-      : { data: [] };
-
-  const tenantIds = Array.from(
-    new Set(
-      (leases ?? [])
-        .map(
-          (lease) =>
-            lease.tenant_id
-        )
-        .filter(
-          (id): id is string =>
-            Boolean(id)
-        )
-    )
-  );
-
-  const { data: tenants } =
-    tenantIds.length > 0
-      ? await supabase
-          .from("tenants")
-          .select(
-            "id, first_name, last_name"
-          )
-          .in(
-            "id",
-            tenantIds
-          )
+          .in("id", generatedLeaseIds)
       : { data: [] };
 
   const paymentMap = new Map(
-    (payments ?? []).map(
-      (payment) => [
-        payment.id,
-        payment,
-      ]
-    )
+    (payments ?? []).map((payment) => [payment.id, payment])
   );
-
   const scheduleMap = new Map(
-    (schedules ?? []).map(
-      (schedule) => [
-        schedule.id,
-        schedule,
-      ]
-    )
+    (schedules ?? []).map((schedule) => [schedule.id, schedule])
+  );
+  const generatedLeaseMap = new Map(
+    (generatedLeases ?? []).map((lease) => [lease.id, lease])
   );
 
-  const leaseMap = new Map(
-    (leases ?? []).map(
-      (lease) => [
-        lease.id,
-        lease,
-      ]
-    )
-  );
+  function tenantNameFromSchedule(scheduleId: string | null | undefined) {
+    if (!scheduleId) return "Locataire non renseigné";
 
-  const tenantMap = new Map(
-    (tenants ?? []).map(
-      (tenant) => [
-        tenant.id,
-        tenant,
-      ]
-    )
-  );
+    const schedule = scheduleMap.get(scheduleId);
+    const lease = schedule
+      ? generatedLeaseMap.get(schedule.lease_id)
+      : undefined;
+    const tenant = lease ? tenantMap.get(lease.tenant_id) : undefined;
 
-  function tenantNameFromSchedule(
-    scheduleId:
-      | string
-      | null
-      | undefined
-  ) {
-    if (!scheduleId) {
-      return "Locataire non renseigné";
-    }
-
-    const schedule =
-      scheduleMap.get(scheduleId);
-
-    if (!schedule) {
-      return "Locataire non renseigné";
-    }
-
-    const lease =
-      leaseMap.get(
-        schedule.lease_id
-      );
-
-    if (!lease) {
-      return "Locataire non renseigné";
-    }
-
-    const tenant =
-      tenantMap.get(
-        lease.tenant_id
-      );
-
-    if (!tenant) {
-      return "Locataire non renseigné";
-    }
-
-    return formatTenantName(
-      tenant.first_name,
-      tenant.last_name
-    );
+    return tenant
+      ? `${tenant.first_name ?? ""} ${tenant.last_name ?? ""}`.trim()
+      : "Locataire non renseigné";
   }
 
-  const receiptRows:
-    GeneratedDocumentRow[] =
-      receipts.map(
-        (receipt) => {
-          const payment =
-            paymentMap.get(
-              receipt.payment_id
-            );
+  const receiptRows: GeneratedDocumentRow[] = receipts.map((receipt) => {
+    const payment = paymentMap.get(receipt.payment_id);
 
-          return {
-            id: receipt.id,
-            type: "RECEIPT",
-            number:
-              receipt.receipt_number ??
-              receipt.number ??
-              receipt.id
-                .slice(0, 8)
-                .toUpperCase(),
-            tenantName:
-              tenantNameFromSchedule(
-                payment?.rent_schedule_id
-              ),
-            amount: Number(
-              receipt.amount ?? 0
-            ),
-            date:
-              receipt.issued_at ??
-              receipt.created_at ??
-              null,
-            pdfHref:
-              `/api/receipts/${receipt.id}/pdf`,
-          };
-        }
-      );
+    return {
+      id: receipt.id,
+      type: "RECEIPT",
+      number:
+        receipt.receipt_number ??
+        receipt.number ??
+        receipt.id.slice(0, 8).toUpperCase(),
+      tenantName: tenantNameFromSchedule(payment?.rent_schedule_id),
+      amount: Number(receipt.amount ?? 0),
+      date: receipt.issued_at ?? receipt.created_at ?? null,
+      pdfHref: `/api/receipts/${receipt.id}/pdf`,
+    };
+  });
 
-  const quittanceRows:
-    GeneratedDocumentRow[] =
-      quittances.map(
-        (quittance) => ({
-          id: quittance.id,
-          type: "QUITTANCE",
-          number:
-            quittance.quittance_number ??
-            quittance.number ??
-            quittance.id
-              .slice(0, 8)
-              .toUpperCase(),
-          tenantName:
-            tenantNameFromSchedule(
-              quittance.rent_schedule_id
-            ),
-          amount: Number(
-            quittance.amount_due ?? 0
-          ),
-          date:
-            quittance.issued_at ??
-            quittance.created_at ??
-            null,
-          pdfHref:
-            `/api/quittances/${quittance.id}/pdf`,
-        })
-      );
+  const quittanceRows: GeneratedDocumentRow[] = quittances.map((quittance) => ({
+    id: quittance.id,
+    type: "QUITTANCE",
+    number:
+      quittance.quittance_number ??
+      quittance.number ??
+      quittance.id.slice(0, 8).toUpperCase(),
+    tenantName: tenantNameFromSchedule(quittance.rent_schedule_id),
+    amount: Number(quittance.amount_due ?? 0),
+    date: quittance.issued_at ?? quittance.created_at ?? null,
+    pdfHref: `/api/quittances/${quittance.id}/pdf`,
+  }));
 
-  const generatedDocuments = [
-    ...receiptRows,
-    ...quittanceRows,
-  ].sort(
-    (a, b) => {
-      const aTime = a.date
-        ? new Date(
-            a.date
-          ).getTime()
-        : 0;
-
-      const bTime = b.date
-        ? new Date(
-            b.date
-          ).getTime()
-        : 0;
-
-      return bTime - aTime;
-    }
+  const generatedDocuments = [...receiptRows, ...quittanceRows].sort(
+    (a, b) =>
+      (b.date ? new Date(b.date).getTime() : 0) -
+      (a.date ? new Date(a.date).getTime() : 0)
   );
 
-  const totalReceipts =
-    receiptRows.length;
+  const filteredGeneratedDocuments = query
+    ? generatedDocuments.filter((document) =>
+        [
+          document.number,
+          document.tenantName,
+          document.type === "RECEIPT" ? "reçu paiement" : "quittance loyer",
+        ]
+          .join(" ")
+          .toLocaleLowerCase("fr")
+          .includes(normalizedQuery)
+      )
+    : generatedDocuments;
 
-  const totalQuittances =
-    quittanceRows.length;
-
-  const totalDocumentAmount =
-    generatedDocuments.reduce(
-      (sum, document) =>
-        sum + document.amount,
-      0
-    );
+  const totalDocumentAmount = generatedDocuments.reduce(
+    (sum, document) => sum + document.amount,
+    0
+  );
 
   return (
     <div className="h-screen overflow-hidden bg-[#F8FAFC]">
@@ -513,27 +408,40 @@ export default async function DocumentsPage() {
               <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-red-500">
                 Gestion locative
               </p>
-
               <h1 className="mt-1 text-[24px] font-extrabold tracking-tight text-[#111827]">
                 Documents
               </h1>
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <a
+                href="#document-search"
                 className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500"
+                aria-label="Rechercher"
               >
                 <Search className="h-4 w-4" />
-              </button>
+              </a>
 
               <button
                 type="button"
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500"
+                aria-label="Notifications"
               >
                 <Bell className="h-4 w-4" />
                 <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />
               </button>
+
+              {canManageDocuments ? (
+                <DocumentUploadButton
+                  options={{
+                    owners: ownerOptions,
+                    tenants: tenantOptions,
+                    properties: propertyOptions,
+                    units: unitOptions,
+                    leases: leaseOptions,
+                  }}
+                />
+              ) : null}
             </div>
           </header>
 
@@ -543,363 +451,289 @@ export default async function DocumentsPage() {
                 <h2 className="text-[20px] font-extrabold text-slate-900">
                   Bibliothèque documentaire
                 </h2>
-
                 <p className="mt-1 text-[13px] text-slate-500">
-                  Retrouvez les documents partagés et les justificatifs générés par Alteract.
+                  Centralisez les pièces privées et les justificatifs générés par Alteract.
                 </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-semibold text-slate-500">
-                      Fichiers partagés
+                  <p className="text-[13px] font-semibold text-slate-500">
+                    Fichiers partagés
+                  </p>
+                  <div className="mt-3 flex items-end justify-between">
+                    <p className="text-[30px] font-extrabold text-slate-900">
+                      {sharedRows.length}
                     </p>
-
                     <FolderOpen className="h-5 w-5 text-red-500" />
                   </div>
-
-                  <p className="mt-4 text-[30px] font-extrabold text-slate-900">
-                    {sharedRows.length}
-                  </p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-semibold text-slate-500">
-                      Reçus
+                  <p className="text-[13px] font-semibold text-slate-500">
+                    Reçus
+                  </p>
+                  <div className="mt-3 flex items-end justify-between">
+                    <p className="text-[30px] font-extrabold text-slate-900">
+                      {receiptRows.length}
                     </p>
-
                     <ReceiptText className="h-5 w-5 text-emerald-500" />
                   </div>
-
-                  <p className="mt-4 text-[30px] font-extrabold text-slate-900">
-                    {totalReceipts}
-                  </p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-semibold text-slate-500">
-                      Quittances
+                  <p className="text-[13px] font-semibold text-slate-500">
+                    Quittances
+                  </p>
+                  <div className="mt-3 flex items-end justify-between">
+                    <p className="text-[30px] font-extrabold text-slate-900">
+                      {quittanceRows.length}
                     </p>
-
                     <WalletCards className="h-5 w-5 text-slate-600" />
                   </div>
-
-                  <p className="mt-4 text-[30px] font-extrabold text-slate-900">
-                    {totalQuittances}
-                  </p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-semibold text-slate-500">
-                      Montants documentés
-                    </p>
-
-                    <WalletCards className="h-5 w-5 text-red-500" />
-                  </div>
-
-                  <p className="mt-4 text-[22px] font-extrabold text-slate-900">
-                    {formatXof(
-                      totalDocumentAmount
-                    )}
+                  <p className="text-[13px] font-semibold text-slate-500">
+                    Montants documentés
+                  </p>
+                  <p className="mt-3 text-[22px] font-extrabold text-slate-900">
+                    {formatXof(totalDocumentAmount)}
                   </p>
                 </div>
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-[18px] font-extrabold text-slate-900">
-                    Fichiers partagés
-                  </h2>
-
-                  <p className="mt-1 text-[12px] text-slate-500">
-                    {sharedRows.length} fichier
-                    {sharedRows.length > 1
-                      ? "s"
-                      : ""}{" "}
-                    accessible
-                    {sharedRows.length > 1
-                      ? "s"
-                      : ""}
-                  </p>
-                </div>
-
-                {canManageDocuments && (
-                  <div className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-600">
-                    <ShieldCheck className="h-4 w-4" />
-                    Upload gestionnaire à l’étape suivante
-                  </div>
-                )}
+            <form
+              id="document-search"
+              method="get"
+              className="flex max-w-xl gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  name="q"
+                  type="search"
+                  defaultValue={query}
+                  placeholder="Titre, type, locataire, bien..."
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                />
               </div>
 
-              {sharedRows.length > 0 ? (
+              <button
+                type="submit"
+                className="h-11 rounded-xl bg-slate-900 px-4 text-[12px] font-bold text-white"
+              >
+                Rechercher
+              </button>
+            </form>
+
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-5 py-5">
+                <h2 className="text-[18px] font-extrabold text-slate-900">
+                  Fichiers partagés
+                </h2>
+                <p className="mt-1 text-[12px] text-slate-500">
+                  {filteredSharedRows.length} fichier
+                  {filteredSharedRows.length > 1 ? "s" : ""} accessible
+                  {filteredSharedRows.length > 1 ? "s" : ""}
+                </p>
+              </div>
+
+              {filteredSharedRows.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead className="bg-slate-50">
                       <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3">
-                          Document
-                        </th>
-                        <th className="px-5 py-3">
-                          Type
-                        </th>
-                        <th className="px-5 py-3">
-                          Date
-                        </th>
-                        <th className="px-5 py-3">
-                          Taille
-                        </th>
-                        <th className="px-5 py-3 text-right">
-                          Fichier
-                        </th>
+                        <th className="px-5 py-3">Document</th>
+                        <th className="px-5 py-3">Rattachement</th>
+                        <th className="px-5 py-3">Visibilité</th>
+                        <th className="px-5 py-3">Date</th>
+                        <th className="px-5 py-3">Taille</th>
+                        <th className="px-5 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {sharedRows.map(
-                        (document) => (
-                          <tr
-                            key={document.id}
-                            className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
-                          >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
-                                  <FileText className="h-5 w-5 text-red-500" />
-                                </div>
-
-                                <div>
-                                  <p className="font-bold text-slate-900">
-                                    {document.title}
-                                  </p>
-
-                                  <p className="mt-1 text-[11px] text-slate-400">
-                                    Document privé sécurisé
-                                  </p>
-                                </div>
+                      {filteredSharedRows.map((document) => (
+                        <tr key={document.id} className="text-[13px] text-slate-600">
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
+                                <FileText className="h-5 w-5 text-red-500" />
                               </div>
-                            </td>
+                              <div>
+                                <p className="font-bold text-slate-900">
+                                  {document.title}
+                                </p>
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  {formatDocumentType(document.documentType)}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
 
-                            <td className="px-5 py-4 font-semibold text-slate-700">
-                              {formatDocumentType(
-                                document.documentType
-                              )}
-                            </td>
+                          <td className="px-5 py-4">
+                            <div className="space-y-1 text-[12px]">
+                              {document.propertyName ? (
+                                <p className="font-semibold text-slate-700">
+                                  {document.propertyName}
+                                  {document.unitName ? ` — ${document.unitName}` : ""}
+                                </p>
+                              ) : null}
+                              {document.ownerName ? (
+                                <p>Propriétaire : {document.ownerName}</p>
+                              ) : null}
+                              {document.tenantName ? (
+                                <p>Locataire : {document.tenantName}</p>
+                              ) : null}
+                              {!document.propertyName &&
+                              !document.ownerName &&
+                              !document.tenantName ? (
+                                <p className="text-slate-400">Document général</p>
+                              ) : null}
+                            </div>
+                          </td>
 
-                            <td className="px-5 py-4">
-                              {formatDate(
-                                document.createdAt
-                              )}
-                            </td>
+                          <td className="px-5 py-4">
+                            <div className="flex flex-wrap gap-1.5">
+                              {document.ownerVisible ? (
+                                <span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                                  Propriétaire
+                                </span>
+                              ) : null}
+                              {document.tenantVisible ? (
+                                <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                                  Locataire
+                                </span>
+                              ) : null}
+                              {!document.ownerVisible && !document.tenantVisible ? (
+                                <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                  Interne
+                                </span>
+                              ) : null}
+                            </div>
+                          </td>
 
-                            <td className="px-5 py-4">
-                              {formatFileSize(
-                                document.fileSize
-                              )}
-                            </td>
+                          <td className="px-5 py-4">
+                            {formatDate(document.createdAt)}
+                          </td>
 
-                            <td className="px-5 py-4 text-right">
+                          <td className="px-5 py-4">
+                            {formatFileSize(document.fileSize)}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <div className="flex flex-wrap justify-end gap-2">
                               {document.signedUrl ? (
                                 <Link
-                                  href={
-                                    document.signedUrl
-                                  }
+                                  href={document.signedUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                                 >
-                                  <Download className="h-4 w-4" />
+                                  <Eye className="h-3.5 w-3.5" />
                                   Ouvrir
                                 </Link>
-                              ) : (
-                                <span className="text-[12px] text-slate-400">
-                                  Indisponible
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      )}
+                              ) : null}
+
+                              {canManageDocuments ? (
+                                <DeleteDocumentButton documentId={document.id} />
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
                 <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
-                    <FolderOpen className="h-6 w-6 text-red-500" />
-                  </div>
-
-                  <h3 className="mt-4 text-[16px] font-bold text-slate-900">
+                  <FolderOpen className="h-7 w-7 text-red-500" />
+                  <h3 className="mt-3 text-[16px] font-bold text-slate-900">
                     Aucun fichier partagé
                   </h3>
-
-                  <p className="mt-1 max-w-md text-[13px] text-slate-500">
-                    Les documents auxquels votre compte a accès apparaîtront ici.
-                  </p>
                 </div>
               )}
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-[18px] font-extrabold text-slate-900">
-                    Justificatifs générés
-                  </h2>
-
-                  <p className="mt-1 text-[12px] text-slate-500">
-                    {generatedDocuments.length} document
-                    {generatedDocuments.length > 1
-                      ? "s"
-                      : ""}{" "}
-                    disponible
-                    {generatedDocuments.length > 1
-                      ? "s"
-                      : ""}
-                  </p>
-                </div>
-
-                <div className="relative w-full sm:w-[300px]">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-
-                  <input
-                    type="text"
-                    placeholder="Rechercher un document..."
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-[13px] outline-none placeholder:text-slate-400"
-                  />
-                </div>
+              <div className="border-b border-slate-100 px-5 py-5">
+                <h2 className="text-[18px] font-extrabold text-slate-900">
+                  Justificatifs générés
+                </h2>
+                <p className="mt-1 text-[12px] text-slate-500">
+                  Reçus et quittances générés automatiquement.
+                </p>
               </div>
 
-              {generatedDocuments.length > 0 ? (
+              {filteredGeneratedDocuments.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead className="bg-slate-50">
                       <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3">
-                          Document
-                        </th>
-                        <th className="px-5 py-3">
-                          Numéro
-                        </th>
-                        <th className="px-5 py-3">
-                          Locataire
-                        </th>
-                        <th className="px-5 py-3">
-                          Date
-                        </th>
-                        <th className="px-5 py-3">
-                          Montant
-                        </th>
-                        <th className="px-5 py-3 text-right">
-                          PDF
-                        </th>
+                        <th className="px-5 py-3">Document</th>
+                        <th className="px-5 py-3">Numéro</th>
+                        <th className="px-5 py-3">Locataire</th>
+                        <th className="px-5 py-3">Date</th>
+                        <th className="px-5 py-3">Montant</th>
+                        <th className="px-5 py-3 text-right">PDF</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {generatedDocuments.map(
-                        (document) => (
-                          <tr
-                            key={`${document.type}-${document.id}`}
-                            className="text-[13px] text-slate-600 transition hover:bg-slate-50/70"
-                          >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className={[
-                                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                                    document.type ===
-                                    "RECEIPT"
-                                      ? "bg-emerald-50"
-                                      : "bg-red-50",
-                                  ].join(" ")}
-                                >
-                                  {document.type ===
-                                  "RECEIPT" ? (
-                                    <ReceiptText className="h-5 w-5 text-emerald-600" />
-                                  ) : (
-                                    <FileText className="h-5 w-5 text-red-500" />
-                                  )}
-                                </div>
+                      {filteredGeneratedDocuments.map((document) => (
+                        <tr
+                          key={`${document.type}-${document.id}`}
+                          className="text-[13px] text-slate-600"
+                        >
+                          <td className="px-5 py-4 font-bold text-slate-900">
+                            {document.type === "RECEIPT"
+                              ? "Reçu de paiement"
+                              : "Quittance de loyer"}
+                          </td>
 
-                                <div>
-                                  <p className="font-bold text-slate-900">
-                                    {document.type ===
-                                    "RECEIPT"
-                                      ? "Reçu de paiement"
-                                      : "Quittance de loyer"}
-                                  </p>
+                          <td className="px-5 py-4 font-semibold text-slate-800">
+                            {document.number}
+                          </td>
 
-                                  <p className="mt-1 text-[11px] text-slate-400">
-                                    Document sécurisé
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2">
+                              <UserRound className="h-4 w-4 text-slate-400" />
+                              {document.tenantName}
+                            </div>
+                          </td>
 
-                            <td className="px-5 py-4 font-semibold text-slate-800">
-                              {document.number}
-                            </td>
+                          <td className="px-5 py-4">
+                            {formatDate(document.date)}
+                          </td>
 
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-2">
-                                <UserRound className="h-4 w-4 text-slate-400" />
+                          <td className="px-5 py-4 font-bold text-slate-900">
+                            {formatXof(document.amount)}
+                          </td>
 
-                                <span className="font-semibold text-slate-800">
-                                  {document.tenantName}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="px-5 py-4 font-medium text-slate-700">
-                              {formatDate(
-                                document.date
-                              )}
-                            </td>
-
-                            <td className="px-5 py-4 font-bold text-slate-900">
-                              {formatXof(
-                                document.amount
-                              )}
-                            </td>
-
-                            <td className="px-5 py-4 text-right">
-                              <Link
-                                href={
-                                  document.pdfHref
-                                }
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-                              >
-                                <Download className="h-4 w-4" />
-                                Ouvrir
-                              </Link>
-                            </td>
-                          </tr>
-                        )
-                      )}
+                          <td className="px-5 py-4 text-right">
+                            <Link
+                              href={document.pdfHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              Ouvrir
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
                 <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
-                    <FileText className="h-6 w-6 text-red-500" />
-                  </div>
-
-                  <h3 className="mt-4 text-[16px] font-bold text-slate-900">
+                  <FileText className="h-7 w-7 text-red-500" />
+                  <h3 className="mt-3 text-[16px] font-bold text-slate-900">
                     Aucun justificatif
                   </h3>
-
-                  <p className="mt-1 max-w-md text-[13px] text-slate-500">
-                    Les reçus et quittances générés apparaîtront ici.
-                  </p>
                 </div>
               )}
             </section>
