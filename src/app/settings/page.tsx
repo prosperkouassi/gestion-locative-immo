@@ -41,6 +41,7 @@ import {
 
 
 import AppSidebar from "@/components/AppSidebar";
+import TotpMfaCard from "@/components/TotpMfaCard";
 
 import { requireActiveMembership } from "@/lib/auth/access";
 
@@ -711,6 +712,8 @@ export default async function SettingsPage({
                   </div>
                 </div>
               </section>
+
+              <TotpMfaCard />
 
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start gap-3">
@@ -2147,35 +2150,7 @@ export default async function SettingsPage({
 
 
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-
-                  <div className="flex items-start gap-3">
-
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
-
-                      <ShieldCheck className="h-5 w-5 text-slate-600" />
-
-                    </div>
-
-                    <div>
-
-                      <h3 className="text-[15px] font-bold text-slate-900">
-
-                        Sécurité
-
-                      </h3>
-
-                      <p className="mt-1 text-[12px] leading-5 text-slate-500">
-
-                        Sessions, permissions et contrôle des accès.
-
-                      </p>
-
-                    </div>
-
-                  </div>
-
-                </div>
+                <TotpMfaCard />
 
 
 

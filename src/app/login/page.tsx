@@ -23,6 +23,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaFactorId, setMfaFactorId] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -47,9 +51,65 @@ export default function LoginPage() {
         return;
       }
 
-      // Redirection après authentification réussie.
-      // Nous utiliserons ensuite le rôle de l'utilisateur
-      // pour déterminer son espace.
+      const {
+        data: aalData,
+        error: aalError,
+      } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (aalError) {
+        await supabase.auth.signOut();
+
+        setError(
+          "Impossible de vérifier le niveau de sécurité de votre session."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      if (
+        aalData.currentLevel === "aal1" &&
+        aalData.nextLevel === "aal2"
+      ) {
+        const {
+          data: factorsData,
+          error: factorsError,
+        } = await supabase.auth.mfa.listFactors();
+
+        if (factorsError) {
+          await supabase.auth.signOut();
+
+          setError(
+            "Impossible de charger votre méthode d’authentification à deux facteurs."
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        const totpFactor =
+          factorsData.totp.find(
+            (factor) =>
+              factor.status === "verified"
+          ) ?? factorsData.totp[0];
+
+        if (!totpFactor) {
+          await supabase.auth.signOut();
+
+          setError(
+            "Aucun Authenticator TOTP valide n’a été trouvé pour ce compte."
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        setMfaFactorId(totpFactor.id);
+        setMfaRequired(true);
+        setMfaCode("");
+        setPassword("");
+        setIsLoading(false);
+        return;
+      }
+
       window.location.href = "/dashboard";
     } catch {
       setError(
@@ -57,6 +117,85 @@ export default function LoginPage() {
       );
       setIsLoading(false);
     }
+  }
+
+  async function handleMfaSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    const normalizedCode = mfaCode.replace(/\s+/g, "");
+
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setError(
+        "Saisissez le code à 6 chiffres affiché dans votre application Authenticator."
+      );
+      return;
+    }
+
+    if (!mfaFactorId) {
+      setError(
+        "Le facteur d’authentification n’est pas disponible. Reconnectez-vous."
+      );
+      return;
+    }
+
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const supabase = createClient();
+
+      const { error: verifyError } =
+        await supabase.auth.mfa.challengeAndVerify({
+          factorId: mfaFactorId,
+          code: normalizedCode,
+        });
+
+      if (verifyError) {
+        setError(
+          "Code incorrect ou expiré. Ouvrez votre application Authenticator et saisissez le code actuel."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      const {
+        data: aalData,
+        error: aalError,
+      } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (
+        aalError ||
+        aalData.currentLevel !== "aal2"
+      ) {
+        setError(
+          "La vérification du second facteur n’a pas pu être confirmée."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      window.location.href = "/dashboard";
+    } catch {
+      setError(
+        "Une erreur est survenue pendant la vérification du code. Veuillez réessayer."
+      );
+      setIsLoading(false);
+    }
+  }
+
+  async function handleMfaCancel() {
+    const supabase = createClient();
+
+    await supabase.auth.signOut();
+
+    setMfaRequired(false);
+    setMfaFactorId("");
+    setMfaCode("");
+    setPassword("");
+    setError("");
   }
 
   return (
@@ -270,180 +409,298 @@ export default function LoginPage() {
             </p>
 
             <h2 className="font-[var(--font-manrope)] text-4xl font-extrabold tracking-tight text-slate-950 sm:text-[42px]">
-              Bon retour !
+              {mfaRequired
+                ? "Vérification sécurisée"
+                : "Bon retour !"}
             </h2>
 
             <p className="mt-3 text-base text-slate-500 sm:text-lg">
-              Connectez-vous à votre espace Alteract.
+              {mfaRequired
+                ? "Saisissez le code affiché dans votre application Authenticator."
+                : "Connectez-vous à votre espace Alteract."}
             </p>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-6"
-          >
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Adresse e-mail
-              </label>
+          {mfaRequired ? (
+            <form
+              onSubmit={handleMfaSubmit}
+              className="space-y-6"
+            >
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
+                    <ShieldCheck size={20} />
+                  </div>
 
-              <div className="group relative">
-                <Mail
-                  size={20}
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-red-500"
-                />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-900">
+                      Authentification à deux facteurs
+                    </p>
 
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(event) => {
-                    setEmail(event.target.value);
+                    <p className="mt-1 text-sm leading-6 text-emerald-800">
+                      Ouvrez Google Authenticator, Microsoft Authenticator
+                      ou votre application TOTP puis saisissez le code actuel
+                      associé à Alteract.
+                    </p>
 
-                    if (error) {
-                      setError("");
-                    }
-                  }}
-                  placeholder="votre@email.com"
-                  className="h-13 w-full rounded-xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
-                />
+                    <p className="mt-2 break-all text-xs font-medium text-emerald-700">
+                      Compte : {email}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Mot de passe */}
-            <div>
-              <label
-                htmlFor="password"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Mot de passe
-              </label>
-
-              <div className="group relative">
-                <LockKeyhole
-                  size={20}
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-red-500"
-                />
-
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(event) => {
-                    setPassword(event.target.value);
-
-                    if (error) {
-                      setError("");
-                    }
-                  }}
-                  placeholder="Votre mot de passe"
-                  className="h-13 w-full rounded-xl border border-slate-300 bg-white py-3 pl-12 pr-12 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
-                />
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowPassword((value) => !value)
-                  }
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
-                  aria-label={
-                    showPassword
-                      ? "Masquer le mot de passe"
-                      : "Afficher le mot de passe"
-                  }
+              <div>
+                <label
+                  htmlFor="mfa-code"
+                  className="mb-2 block text-sm font-semibold text-slate-800"
                 >
-                  {showPassword ? (
-                    <EyeOff size={20} />
-                  ) : (
-                    <Eye size={20} />
-                  )}
-                </button>
+                  Code d’authentification
+                </label>
+
+                <div className="group relative">
+                  <LockKeyhole
+                    size={20}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-red-500"
+                  />
+
+                  <input
+                    id="mfa-code"
+                    name="mfa-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    required
+                    autoFocus
+                    value={mfaCode}
+                    onChange={(event) => {
+                      const digits =
+                        event.target.value.replace(/\D/g, "");
+
+                      setMfaCode(digits.slice(0, 6));
+
+                      if (error) {
+                        setError("");
+                      }
+                    }}
+                    placeholder="000000"
+                    className="h-14 w-full rounded-xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-center font-[var(--font-manrope)] text-2xl font-extrabold tracking-[0.35em] text-slate-950 outline-none transition placeholder:text-slate-300 hover:border-slate-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
+                  />
+                </div>
+
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  Le code comporte 6 chiffres et change automatiquement
+                  dans votre application Authenticator.
+                </p>
               </div>
-            </div>
 
-            {/* Options */}
-            <div className="flex flex-col gap-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <label className="flex cursor-pointer items-center gap-3 text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(event) =>
-                    setRememberMe(event.target.checked)
-                  }
-                  className="peer sr-only"
-                />
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+                >
+                  {error}
+                </div>
+              )}
 
-                <span className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-300 bg-white transition peer-checked:border-red-500 peer-checked:bg-red-500">
-                  {rememberMe && (
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M5 12L10 17L19 7"
-                        stroke="white"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
+              <button
+                type="submit"
+                disabled={
+                  isLoading ||
+                  mfaCode.length !== 6
+                }
+                className="group flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-red-500 px-6 font-semibold text-white shadow-lg shadow-red-500/15 transition duration-200 hover:bg-red-600 hover:shadow-xl hover:shadow-red-500/20 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span>
+                  {isLoading
+                    ? "Vérification..."
+                    : "Vérifier le code"}
                 </span>
 
-                <span>Se souvenir de moi</span>
-              </label>
+                {!isLoading && (
+                  <ArrowRight
+                    size={19}
+                    className="transition-transform duration-200 group-hover:translate-x-1"
+                  />
+                )}
+              </button>
 
               <button
                 type="button"
-                className="text-left font-medium text-red-500 transition hover:text-red-600 sm:text-right"
+                onClick={handleMfaCancel}
+                disabled={isLoading}
+                className="flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Mot de passe oublié ?
+                Utiliser un autre compte
               </button>
-            </div>
-
-            {/* Erreur Supabase */}
-            {error && (
-              <div
-                role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Bouton connexion */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-red-500 px-6 font-semibold text-white shadow-lg shadow-red-500/15 transition duration-200 hover:bg-red-600 hover:shadow-xl hover:shadow-red-500/20 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+            </form>
+          ) : (
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-6"
             >
-              <span>
-                {isLoading
-                  ? "Connexion..."
-                  : "Se connecter"}
-              </span>
+              {/* Email */}
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-2 block text-sm font-semibold text-slate-800"
+                >
+                  Adresse e-mail
+                </label>
 
-              {!isLoading && (
-                <ArrowRight
-                  size={19}
-                  className="transition-transform duration-200 group-hover:translate-x-1"
-                />
+                <div className="group relative">
+                  <Mail
+                    size={20}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-red-500"
+                  />
+
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+
+                      if (error) {
+                        setError("");
+                      }
+                    }}
+                    placeholder="votre@email.com"
+                    className="h-13 w-full rounded-xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
+                  />
+                </div>
+              </div>
+
+              {/* Mot de passe */}
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-2 block text-sm font-semibold text-slate-800"
+                >
+                  Mot de passe
+                </label>
+
+                <div className="group relative">
+                  <LockKeyhole
+                    size={20}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 transition group-focus-within:text-red-500"
+                  />
+
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+
+                      if (error) {
+                        setError("");
+                      }
+                    }}
+                    placeholder="Votre mot de passe"
+                    className="h-13 w-full rounded-xl border border-slate-300 bg-white py-3 pl-12 pr-12 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowPassword((value) => !value)
+                    }
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                    aria-label={
+                      showPassword
+                        ? "Masquer le mot de passe"
+                        : "Afficher le mot de passe"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOff size={20} />
+                    ) : (
+                      <Eye size={20} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Options */}
+              <div className="flex flex-col gap-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <label className="flex cursor-pointer items-center gap-3 text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) =>
+                      setRememberMe(event.target.checked)
+                    }
+                    className="peer sr-only"
+                  />
+
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-300 bg-white transition peer-checked:border-red-500 peer-checked:bg-red-500">
+                    {rememberMe && (
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M5 12L10 17L19 7"
+                          stroke="white"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+
+                  <span>Se souvenir de moi</span>
+                </label>
+
+                <button
+                  type="button"
+                  className="text-left font-medium text-red-500 transition hover:text-red-600 sm:text-right"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+                >
+                  {error}
+                </div>
               )}
-            </button>
-          </form>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="group flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-red-500 px-6 font-semibold text-white shadow-lg shadow-red-500/15 transition duration-200 hover:bg-red-600 hover:shadow-xl hover:shadow-red-500/20 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span>
+                  {isLoading
+                    ? "Connexion..."
+                    : "Se connecter"}
+                </span>
+
+                {!isLoading && (
+                  <ArrowRight
+                    size={19}
+                    className="transition-transform duration-200 group-hover:translate-x-1"
+                  />
+                )}
+              </button>
+            </form>
+          )}
 
           {/* Pas d'inscription publique */}
           <div className="mt-8 border-t border-slate-200 pt-7 text-center">
