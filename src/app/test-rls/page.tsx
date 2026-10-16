@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+
+import { requireAdminOrManager } from "@/lib/auth/access";
 
 import {
   testAtomicLeaseOverlap,
@@ -25,30 +26,11 @@ function CountCard({ label, value }: CountCardProps) {
 }
 
 export default async function TestRlsPage() {
-  const supabase = await createClient();
-
-  const { data: claimsData, error: claimsError } =
-    await supabase.auth.getClaims();
-
-  if (claimsError || !claimsData?.claims) {
-    redirect("/login");
-  }
-
-  const { data: membership, error: membershipError } =
-    await supabase
-      .from("organization_members")
-      .select("organization_id, role, is_active")
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-  if (
-    membershipError ||
-    !membership ||
-    !["ADMIN_AGENCY", "MANAGER"].includes(membership.role)
-  ) {
+  if (process.env.NODE_ENV === "production") {
     redirect("/dashboard");
   }
+
+  const { supabase } = await requireAdminOrManager();
 
   const [
     ownersResult,
@@ -113,8 +95,8 @@ export default async function TestRlsPage() {
           </p>
 
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            Accès réservé aux rôles ADMIN_AGENCY et MANAGER. Cette page devra
-            être supprimée avant la mise en production.
+            Accès réservé aux rôles ADMIN_AGENCY et MANAGER. Cette page est
+            automatiquement inaccessible en production.
           </div>
         </div>
 
