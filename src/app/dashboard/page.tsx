@@ -55,6 +55,7 @@ import { requireActiveMembership } from "@/lib/auth/access";
 
 
 import AppSidebar from "@/components/AppSidebar";
+import SubscriptionCard from "@/components/SubscriptionCard";
 
 
 

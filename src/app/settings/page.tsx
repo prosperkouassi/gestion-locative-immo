@@ -42,6 +42,7 @@ import {
 
 import AppSidebar from "@/components/AppSidebar";
 import TotpMfaCard from "@/components/TotpMfaCard";
+import SubscriptionOverview from "@/components/SubscriptionOverview";
 
 import { requireActiveMembership } from "@/lib/auth/access";
 
@@ -2029,6 +2030,8 @@ export default async function SettingsPage({
             </section>
 
 
+
+            {canEditOrganization ? <SubscriptionOverview /> : null}
 
             <section>
 

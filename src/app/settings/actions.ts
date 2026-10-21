@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAgencyWritable } from "@/lib/subscriptions/assert-agency-writable";
 import { createClient } from "@/lib/supabase/server";
 
 const MANAGEABLE_ROLES = ["MANAGER", "OWNER", "TENANT"] as const;
@@ -156,6 +157,8 @@ async function requireAgencyAdmin() {
 export async function updateOrganizationAction(formData: FormData) {
   const { supabase, organizationId } = await requireAgencyAdmin();
 
+  await assertAgencyWritable(organizationId);
+
   const name = getRequiredText(
     formData,
     "name",
@@ -204,6 +207,8 @@ export async function updateOrganizationAction(formData: FormData) {
 
 export async function inviteUserAction(formData: FormData) {
   const { organizationId } = await requireAgencyAdmin();
+
+  await assertAgencyWritable(organizationId);
 
   const email = getRequiredText(
     formData,
@@ -397,6 +402,8 @@ export async function inviteUserAction(formData: FormData) {
 
 export async function updateMemberAccessAction(formData: FormData) {
   const { user, organizationId } = await requireAgencyAdmin();
+
+  await assertAgencyWritable(organizationId);
 
   const membershipId = getRequiredText(
     formData,

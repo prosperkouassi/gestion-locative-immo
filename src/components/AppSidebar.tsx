@@ -1,9 +1,11 @@
+
 "use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+  BadgeCheck,
   BarChart3,
   Building2,
   CalendarDays,
@@ -144,10 +146,14 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const [role, setRole] = useState<OrganizationRole | null>(null);
+  const [role, setRole] =
+    useState<OrganizationRole | null>(null);
+
   const [organizationName, setOrganizationName] =
     useState("Chargement...");
-  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const [isSigningOut, setIsSigningOut] =
+    useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -211,7 +217,11 @@ export default function AppSidebar() {
       const { error } = await supabase.auth.signOut();
 
       if (error) {
-        console.error("Erreur de déconnexion :", error);
+        console.error(
+          "Erreur de déconnexion :",
+          error
+        );
+
         setIsSigningOut(false);
         return;
       }
@@ -254,6 +264,10 @@ export default function AppSidebar() {
     pathname === "/settings" ||
     pathname.startsWith("/settings/");
 
+  const subscriptionActive =
+    pathname === "/subscription" ||
+    pathname.startsWith("/subscription/");
+
   return (
     <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col bg-[#151515] px-3 py-4 text-white lg:flex">
       <div className="flex h-12 items-center gap-3 px-2">
@@ -284,7 +298,9 @@ export default function AppSidebar() {
               item.href === "/dashboard"
                 ? pathname === "/dashboard"
                 : pathname === item.href ||
-                  pathname.startsWith(`${item.href}/`);
+                  pathname.startsWith(
+                    `${item.href}/`
+                  );
 
             return (
               <Link
@@ -292,7 +308,9 @@ export default function AppSidebar() {
                 href={item.href}
                 className={[
                   baseClass,
-                  isActive ? activeClass : inactiveClass,
+                  isActive
+                    ? activeClass
+                    : inactiveClass,
                 ].join(" ")}
               >
                 <Icon className="h-[17px] w-[17px]" />
@@ -312,11 +330,28 @@ export default function AppSidebar() {
       <div className="mt-auto">
         {role ? (
           <>
+            {role === "ADMIN_AGENCY" && (
+              <Link
+                href="/subscription"
+                className={[
+                  baseClass,
+                  subscriptionActive
+                    ? activeClass
+                    : inactiveClass,
+                ].join(" ")}
+              >
+                <BadgeCheck className="h-[17px] w-[17px]" />
+                <span>Abonnement</span>
+              </Link>
+            )}
+
             <Link
               href="/settings"
               className={[
                 baseClass,
-                settingsActive ? activeClass : inactiveClass,
+                settingsActive
+                  ? activeClass
+                  : inactiveClass,
               ].join(" ")}
             >
               <Settings className="h-[17px] w-[17px]" />

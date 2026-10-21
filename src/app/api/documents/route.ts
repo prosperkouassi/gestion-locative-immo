@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireAdminOrManager } from "@/lib/auth/access";
+import { assertAgencyWritable } from "@/lib/subscriptions/assert-agency-writable";
 
 const DOCUMENT_TYPES = [
   "LEASE",
@@ -59,6 +60,8 @@ async function validateReference(
 export async function POST(request: Request) {
   try {
     const { supabase, membership, user } = await requireAdminOrManager();
+    await assertAgencyWritable(membership.organization_id);
+
     const formData = await request.formData();
 
     const title = String(formData.get("title") ?? "").trim();
@@ -255,9 +258,27 @@ export async function POST(request: Request) {
     });
 
     if (insertError) {
-      await supabase.storage.from("documents").remove([storagePath]);
-
       console.error("Erreur création document:", insertError);
+
+      try {
+        const { error: cleanupError } = await supabase.storage
+          .from("documents")
+          .remove([storagePath]);
+
+        if (cleanupError) {
+          console.error("ALERTE : fichier potentiellement orphelin:", {
+            organizationId,
+            storagePath,
+            cleanupError,
+          });
+        }
+      } catch (cleanupException) {
+        console.error("ALERTE : nettoyage Storage interrompu:", {
+          organizationId,
+          storagePath,
+          cleanupException,
+        });
+      }
 
       return NextResponse.json(
         { message: "Le fichier a été envoyé mais son enregistrement a échoué." },
@@ -282,6 +303,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { supabase, membership } = await requireAdminOrManager();
+    await assertAgencyWritable(membership.organization_id);
+
     const url = new URL(request.url);
     const documentId = url.searchParams.get("id")?.trim();
 
@@ -306,37 +329,53 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const { error: storageError } = await supabase.storage
-      .from("documents")
-      .remove([document.storage_path]);
-
-    if (storageError) {
-      console.error("Erreur suppression storage:", storageError);
-
-      return NextResponse.json(
-        { message: "Le fichier n’a pas pu être supprimé du stockage." },
-        { status: 500 }
-      );
-    }
-
-    const { error: deleteError } = await supabase
+    const { data: deletedRows, error: deleteError } = await supabase
       .from("documents")
       .delete()
       .eq("id", documentId)
-      .eq("organization_id", membership.organization_id);
+      .eq("organization_id", membership.organization_id)
+      .select("id");
 
-    if (deleteError) {
-      console.error("Erreur suppression document:", deleteError);
+    if (deleteError || !deletedRows?.length) {
+      console.error("Erreur suppression fiche document:", deleteError);
 
       return NextResponse.json(
-        {
-          message:
-            "Le fichier a été supprimé du stockage mais la fiche document n’a pas pu être supprimée.",
-        },
+        { message: "La fiche du document n'a pas pu être supprimée." },
         { status: 500 }
       );
     }
 
+    try {
+      const { error: storageError } = await supabase.storage
+        .from("documents")
+        .remove([document.storage_path]);
+
+      if (storageError) {
+        console.error("ALERTE : fichier Storage potentiellement orphelin:", {
+          organizationId: membership.organization_id,
+          documentId,
+          storagePath: document.storage_path,
+          storageError,
+        });
+
+        return NextResponse.json(
+          { message: "La fiche a été supprimée, mais le nettoyage du fichier a échoué." },
+          { status: 500 }
+        );
+      }
+    } catch (storageException) {
+      console.error("ALERTE : suppression Storage interrompue:", {
+        organizationId: membership.organization_id,
+        documentId,
+        storagePath: document.storage_path,
+        storageException,
+      });
+
+      return NextResponse.json(
+        { message: "La fiche a été supprimée, mais le nettoyage du fichier a échoué." },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ message: "Document supprimé." });
   } catch (error) {
     console.error("Erreur API documents DELETE:", error);

@@ -54,8 +54,26 @@ async function assertProperty(
   if (error || !data) throw new Error("Le bien sélectionné est invalide pour votre organisation.");
 }
 
+/** Ne transmet au navigateur que les erreurs de quota explicitement reconnues. */
+function unitCreationError(error: { code?: string; message: string }): string {
+  const quotaMatch = error.message.match(
+    /Quota de logements atteint\s*:\s*offre\s+(free|silver|gold)\s*,\s*limite\s+(\d+)/i
+  );
+
+  if (error.code === "P0001" && quotaMatch) {
+    const plan = quotaMatch[1].toUpperCase();
+    const limit = quotaMatch[2];
+    return `Impossible d’ajouter ce logement : votre offre ${plan} autorise ${limit} logements maximum. Contactez votre administrateur Alteract pour changer d’offre.`;
+  }
+
+  console.error("Erreur création unité :", error);
+  return "Impossible de créer l’unité. Vérifiez les informations saisies ou contactez l’assistance.";
+}
+
 export async function createUnitAction(formData: FormData) {
   const { supabase, membership } = await requireAdminOrManager();
+  let feedback: { status: "success" | "error"; message: string };
+
   try {
     const propertyId = requiredText(formData, "property_id", "Le bien", 100);
     const name = requiredText(formData, "name", "Le nom de l’unité");
@@ -83,23 +101,26 @@ export async function createUnitAction(formData: FormData) {
       is_active: true,
     });
 
-    if (error) {
-      console.error("Erreur création unité :", error);
-      throw new Error("Impossible de créer l’unité.");
-    }
+    if (error) throw new Error(unitCreationError(error));
 
     revalidatePath("/units");
     revalidatePath("/properties");
     revalidatePath("/dashboard");
-    go("success", "L’unité a été créée.");
+    feedback = { status: "success", message: "L’unité a été créée." };
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
-    go("error", error instanceof Error ? error.message : "Impossible de créer l’unité.");
+    feedback = {
+      status: "error",
+      message: error instanceof Error ? error.message : "Impossible de créer l’unité.",
+    };
   }
+
+  go(feedback.status, feedback.message);
 }
 
 export async function updateUnitAction(formData: FormData) {
   const { supabase, membership } = await requireAdminOrManager();
+  let feedback: { status: "success" | "error"; message: string };
+
   try {
     const unitId = requiredText(formData, "unit_id", "L’identifiant de l’unité", 100);
     const propertyId = requiredText(formData, "property_id", "Le bien", 100);
@@ -136,11 +157,15 @@ export async function updateUnitAction(formData: FormData) {
     revalidatePath("/units");
     revalidatePath("/properties");
     revalidatePath("/dashboard");
-    go("success", "L’unité a été mise à jour.");
+    feedback = { status: "success", message: "L’unité a été mise à jour." };
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
-    go("error", error instanceof Error ? error.message : "Impossible de modifier l’unité.");
+    feedback = {
+      status: "error",
+      message: error instanceof Error ? error.message : "Impossible de modifier l’unité.",
+    };
   }
+
+  go(feedback.status, feedback.message);
 }
 
 export async function toggleUnitActiveAction(formData: FormData) {

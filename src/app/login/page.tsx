@@ -110,7 +110,7 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = "/dashboard";
+      window.location.href = "/auth/redirect";
     } catch {
       setError(
         "Une erreur est survenue pendant la connexion. Veuillez réessayer."
@@ -177,7 +177,7 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = "/dashboard";
+      window.location.href = "/auth/redirect";
     } catch {
       setError(
         "Une erreur est survenue pendant la vérification du code. Veuillez réessayer."
